@@ -1,2 +1,7 @@
 *Identifier
-data/
+data/smart_palletizing_data*
+build/
+install/
+log/
+.vscode/
+old_setup.py
