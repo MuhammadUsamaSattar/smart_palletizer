@@ -5,3 +5,4 @@ install/
 log/
 .vscode/
 old_setup.py
+test.py

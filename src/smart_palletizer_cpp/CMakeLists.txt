@@ -11,9 +11,10 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(cv_bridge REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_executable(detection src/detection.cpp)
-ament_target_dependencies(detection rclcpp sensor_msgs OpenCV cv_bridge)
+ament_target_dependencies(detection rclcpp sensor_msgs OpenCV cv_bridge std_msgs)
 
 install(TARGETS
   detection
