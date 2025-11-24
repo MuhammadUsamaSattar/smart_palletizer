@@ -1,6 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
@@ -16,27 +17,17 @@ def generate_launch_description():
     bag_path_arg = DeclareLaunchArgument(
         "bag_path", description="Relative path of the bag folder containing data"
     )
-    run_bag_arg = DeclareLaunchArgument(
-        "run_bag", description="Launch the bag or not", default_value="True"
-    )
     downscaling_factor_arg = DeclareLaunchArgument(
         "downscaling_factor",
         description="Downscaling factor for rgb and depth image",
-        default_value="2",
-    )
-    namespace_arg = DeclareLaunchArgument(
-        "namespace",
-        description="Namespace of the node",
-        default_value="/camera_filtered",
+        default_value="1",
     )
 
     return LaunchDescription(
         [
             main_node_arg,
             bag_path_arg,
-            run_bag_arg,
             downscaling_factor_arg,
-            namespace_arg,
             Node(
                 condition=IfCondition(LaunchConfiguration("main_node")),
                 package="rviz2",
@@ -49,7 +40,7 @@ def generate_launch_description():
                             [
                                 FindPackageShare("smart_palletizer_py"),
                                 "rviz2",
-                                "post_processing.rviz",
+                                "box_detection.rviz",
                             ]
                         ),
                     )
@@ -60,31 +51,28 @@ def generate_launch_description():
                     }
                 ],
             ),
-            ExecuteProcess(
-                condition=IfCondition(LaunchConfiguration("run_bag")),
-                cmd=[
-                    "ros2",
-                    "bag",
-                    "play",
-                    "-l",
-                    "--clock",
-                    "30",
-                    LaunchConfiguration("bag_path"),
-                ],
-                output="screen",
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare("smart_palletizer_py"),
+                            "launch",
+                            "post_processing.launch.py",
+                        ]
+                    ),
+                ),
+                launch_arguments={
+                    "main_node": "False",
+                    "bag_path": LaunchConfiguration("bag_path"),
+                    "downscaling_factor": LaunchConfiguration("downscaling_factor"),
+                    "namespace": "/camera_filtered",
+                }.items(),
             ),
             Node(
                 package="smart_palletizer_py",
-                executable="post_processing",
-                name="post_processing_node",
-                namespace=LaunchConfiguration("namespace"),
-                output="screen",
-                parameters=[
-                    {
-                        "use_sim_time": True,
-                        "downscaling_factor": LaunchConfiguration("downscaling_factor"),
-                    }
-                ],
+                executable="box_detection",
+                name="box_detection_node",
+                parameters=[{"use_sim_time": True}],
             ),
         ]
     )

@@ -6,3 +6,4 @@ log/
 .vscode/
 old_setup.py
 test.py
+smart_palletizer_cpp2/

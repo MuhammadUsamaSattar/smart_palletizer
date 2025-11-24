@@ -13,6 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.launch.py'))),
+        (os.path.join('share', package_name, 'rviz2'), glob(os.path.join('rviz2', '*.rviz'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -27,8 +28,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'detection = smart_palletizer_py.detection:main',
-            'post_processing = smart_palletizer_py.post_processing:main'
+            'box_detection = smart_palletizer_py.box_detection:main',
+            'post_processing = smart_palletizer_py.post_processing:main',
+            'pose_detection = smart_palletizer_py.pose_detection:main',
         ],
     },
 )

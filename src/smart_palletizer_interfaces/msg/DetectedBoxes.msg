@@ -1,0 +1,2 @@
+std_msgs/Header header
+smart_palletizer_interfaces/DetectedBox[] data

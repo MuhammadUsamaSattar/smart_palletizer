@@ -1,13 +1,16 @@
 import math
+
 import numpy as np
 
+
 def distance(a, b):
-    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+
 
 def time_filter(img: np.ndarray, prev_filtered_img, alpha=0.5, delta=20):
     if not isinstance(prev_filtered_img, np.ndarray):
         return img
-    
+
     dtype = img.dtype
     img = img.astype(np.float32)
     prev_filtered_img = prev_filtered_img.astype(np.float32)
@@ -19,9 +22,8 @@ def time_filter(img: np.ndarray, prev_filtered_img, alpha=0.5, delta=20):
 
     return img.astype(dtype)
 
-import numpy as np
 
-def subsample(img, factor=2, method='auto'):
+def subsample(img, factor=2, method="auto"):
     """
     Sub-sample an image (depth map or RGB) intelligently using non-zero median or mean.
 
@@ -38,8 +40,8 @@ def subsample(img, factor=2, method='auto'):
     """
     assert img.ndim in (2, 3), "Input must be 2D (depth) or 3D (RGB)"
     dtype = img.dtype
-    if method == 'auto':
-        method = 'median' if factor < 4 else 'mean'
+    if method == "auto":
+        method = "median" if factor < 4 else "mean"
 
     if img.ndim == 2:
         H, W = img.shape
@@ -55,26 +57,34 @@ def subsample(img, factor=2, method='auto'):
     # Pad to make divisible by factor
     pad_H = new_H * factor - H
     pad_W = new_W * factor - W
-    padded = np.pad(img_reshaped, ((0, pad_H), (0, pad_W), (0, 0)),
-                    mode='constant', constant_values=0)
+    padded = np.pad(
+        img_reshaped,
+        ((0, pad_H), (0, pad_W), (0, 0)),
+        mode="constant",
+        constant_values=0,
+    )
 
     # Reshape into blocks
     blocks = padded.reshape(new_H, factor, new_W, factor, C)
     blocks = blocks.transpose(0, 2, 1, 3, 4)
-    blocks_flat = blocks.reshape(new_H, new_W, factor*factor, C)
+    blocks_flat = blocks.reshape(new_H, new_W, factor * factor, C)
 
     valid = blocks_flat > 0
 
-    if method == 'median':
+    if method == "median":
         # Convert to float32 for median computation
         blocks_float = blocks_flat.astype(np.float32)
         blocks_masked = np.where(valid, blocks_float, np.nan)
         subsampled = np.nanmedian(blocks_masked, axis=2)
-        subsampled = np.nan_to_num(subsampled, nan=0).astype(dtype)  # convert back to original dtype
-    elif method == 'mean':
+        subsampled = np.nan_to_num(subsampled, nan=0).astype(
+            dtype
+        )  # convert back to original dtype
+    elif method == "mean":
         sums = np.sum(blocks_flat * valid, axis=2, dtype=np.float32)
         counts = np.sum(valid, axis=2, dtype=np.float32)
-        subsampled = np.divide(sums, counts, out=np.zeros_like(sums, dtype=np.float32), where=counts>0)
+        subsampled = np.divide(
+            sums, counts, out=np.zeros_like(sums, dtype=np.float32), where=counts > 0
+        )
         subsampled = np.nan_to_num(subsampled, nan=0).astype(dtype)
     else:
         raise ValueError("Method must be 'median', 'mean', or 'auto'")
@@ -85,36 +95,35 @@ def subsample(img, factor=2, method='auto'):
     return subsampled
 
 
-
-
 def get_mask(type, dy, dx):
     """Return boolean mask of selected neighborhood offsets for the given type."""
-    if type == 'U-1D':
+    if type == "U-1D":
         return dy < 0
-    elif type == 'D-1D':
+    elif type == "D-1D":
         return dy > 0
-    elif type == 'L-1D':
+    elif type == "L-1D":
         return dx < 0
-    elif type == 'R-1D':
+    elif type == "R-1D":
         return dx > 0
-    elif type == 'U-2D-Excl':
+    elif type == "U-2D-Excl":
         return (dy < 0) & (np.abs(dx) <= np.abs(dy))
-    elif type == 'D-2D-Excl':
+    elif type == "D-2D-Excl":
         return (dy > 0) & (np.abs(dx) <= np.abs(dy))
-    elif type == 'L-2D-Excl':
+    elif type == "L-2D-Excl":
         return (dx < 0) & (np.abs(dy) <= np.abs(dx))
-    elif type == 'R-2D-Excl':
+    elif type == "R-2D-Excl":
         return (dx > 0) & (np.abs(dy) <= np.abs(dx))
-    elif type == 'U-2D-Incl':
+    elif type == "U-2D-Incl":
         return dy < 0
-    elif type == 'D-2D-Incl':
+    elif type == "D-2D-Incl":
         return dy > 0
-    elif type == 'L-2D-Incl':
+    elif type == "L-2D-Incl":
         return dx < 0
-    elif type == 'R-2D-Incl':
+    elif type == "R-2D-Incl":
         return dx > 0
     else:
         raise ValueError(f"Unknown type: {type}")
+
 
 def holePatching(img, size, mode, type, max_iter=10):
     """
@@ -140,7 +149,7 @@ def holePatching(img, size, mode, type, max_iter=10):
 
     # Prepare offset grid
     idx = np.arange(-pad, pad + 1)
-    dy, dx = np.meshgrid(idx, idx, indexing='ij')
+    dy, dx = np.meshgrid(idx, idx, indexing="ij")
 
     # Compute only the needed mask
     mask = get_mask(type, dy, dx)
@@ -148,30 +157,33 @@ def holePatching(img, size, mode, type, max_iter=10):
     dx_offsets = dx[mask]
 
     for _ in range(max_iter):
-        zeros = (patched == 0)
+        zeros = patched == 0
         if not np.any(zeros):
             break
 
         # Pad the current image
-        padded = np.pad(patched, pad_width=pad, mode='edge')
+        padded = np.pad(patched, pad_width=pad, mode="edge")
 
         # Vectorized neighbor extraction
-        neighbors = np.array([
-            padded[pad + dy_i:h + pad + dy_i, pad + dx_i:w + pad + dx_i]
-            for dy_i, dx_i in zip(dy_offsets, dx_offsets)
-        ], dtype=np.uint16)
+        neighbors = np.array(
+            [
+                padded[pad + dy_i : h + pad + dy_i, pad + dx_i : w + pad + dx_i]
+                for dy_i, dx_i in zip(dy_offsets, dx_offsets)
+            ],
+            dtype=np.uint16,
+        )
 
         valid = neighbors > 0  # Only consider non-zero neighbors
 
-        if mode == 'median':
+        if mode == "median":
             neighbors_masked = np.where(valid, neighbors, np.nan)
             newvals = np.nanmedian(neighbors_masked, axis=0)
             newvals = np.nan_to_num(newvals, nan=0).astype(np.uint16)
-        elif mode == 'min':
+        elif mode == "min":
             neighbors_masked = np.where(valid, neighbors, np.iinfo(np.uint16).max)
             newvals = np.min(neighbors_masked, axis=0)
             newvals[np.all(~valid, axis=0)] = 0
-        elif mode == 'max':
+        elif mode == "max":
             neighbors_masked = np.where(valid, neighbors, 0)
             newvals = np.max(neighbors_masked, axis=0)
         else:
@@ -186,7 +198,6 @@ def holePatching(img, size, mode, type, max_iter=10):
 
     return patched
 
-import numpy as np
 
 def spatial_edge_preserving_filter(img, alpha=0.6, delta=8):
     """
@@ -220,9 +231,9 @@ def spatial_edge_preserving_filter(img, alpha=0.6, delta=8):
                         row = row[::-1, :]
                     # Recursive EMA along row
                     for x in range(1, W):
-                        diff = np.abs(row[x, :] - row[x-1, :])
+                        diff = np.abs(row[x, :] - row[x - 1, :])
                         a = np.where(diff > delta, 1.0, alpha)
-                        row[x, :] = a * row[x, :] + (1 - a) * row[x-1, :]
+                        row[x, :] = a * row[x, :] + (1 - a) * row[x - 1, :]
                     if direction == -1:
                         row = row[::-1, :]
                     filtered[y, :, :] = row
@@ -233,9 +244,9 @@ def spatial_edge_preserving_filter(img, alpha=0.6, delta=8):
                     if direction == -1:
                         col = col[::-1, :]
                     for y in range(1, H):
-                        diff = np.abs(col[y, :] - col[y-1, :])
+                        diff = np.abs(col[y, :] - col[y - 1, :])
                         a = np.where(diff > delta, 1.0, alpha)
-                        col[y, :] = a * col[y, :] + (1 - a) * col[y-1, :]
+                        col[y, :] = a * col[y, :] + (1 - a) * col[y - 1, :]
                     if direction == -1:
                         col = col[::-1, :]
                     filtered[:, x, :] = col
@@ -247,3 +258,26 @@ def spatial_edge_preserving_filter(img, alpha=0.6, delta=8):
 
     return filtered
 
+
+def quaternion_from_euler(ai, aj, ak):
+    ai /= 2.0
+    aj /= 2.0
+    ak /= 2.0
+    ci = math.cos(ai)
+    si = math.sin(ai)
+    cj = math.cos(aj)
+    sj = math.sin(aj)
+    ck = math.cos(ak)
+    sk = math.sin(ak)
+    cc = ci * ck
+    cs = ci * sk
+    sc = si * ck
+    ss = si * sk
+
+    q = np.empty((4,))
+    q[0] = cj * sc - sj * cs
+    q[1] = cj * ss + sj * cc
+    q[2] = cj * cs - sj * sc
+    q[3] = cj * cc + sj * ss
+
+    return q
