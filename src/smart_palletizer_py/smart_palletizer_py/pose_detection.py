@@ -34,18 +34,11 @@ class PoseDetection(Node):
         self.camera.from_camera_info(msg)
 
     def detect_pose(self):
-        if self.detected_boxes is None or self.camera.tf_frame is None:
+        if self.detected_boxes is None or self.camera.get_tf_frame is None:
             return
 
         number_boxes = 1
         for detected_box in self.detected_boxes.data:
-
-            x, y, z = self.camera.project_pixel_to_3d_ray(
-                (detected_box.x, detected_box.y)
-            )
-            factor = detected_box.depth / (1000 * z)
-            x, y, z = x * factor, y * factor, z * factor
-
             box_tf = TransformStamped()
 
             box_tf.header.stamp = self.get_clock().now().to_msg()
@@ -53,6 +46,7 @@ class PoseDetection(Node):
             box_tf.child_frame_id = "box_" + str(number_boxes)
             number_boxes += 1
 
+            x, y, z = utils.get_XYZ_from_Pixels(self.camera, detected_box.x, detected_box.y, detected_box.depth)
             box_tf.transform.translation.x = float(x)
             box_tf.transform.translation.y = float(y)
             box_tf.transform.translation.z = float(z)

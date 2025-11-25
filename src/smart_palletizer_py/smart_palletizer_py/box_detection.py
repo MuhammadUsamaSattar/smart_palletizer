@@ -1,9 +1,12 @@
+import math
+
 import cv2
 from cv_bridge import CvBridge
+import image_geometry
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Header
 
 from smart_palletizer_py import utils
@@ -24,6 +27,12 @@ class BoxDetection(Node):
         self.rgb_subscription = self.create_subscription(
             Image, "/camera_filtered/color/image_filtered", self.add_rgb_data, 10
         )
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo,
+            "/camera_filtered/aligned_depth_to_color/camera_info",
+            self.add_camera_info,
+            10,
+        )
         self.depth_subscription = self.create_subscription(
             Image,
             "/camera_filtered/aligned_depth_to_color/image_filtered",
@@ -31,11 +40,12 @@ class BoxDetection(Node):
             10,
         )
 
-        self.timer = self.create_timer(1 / 30, self.detect_contours)
+        self.timer = self.create_timer(1 / 30, self.detect_boxes)
 
         self.bridge = CvBridge()
         self.combined_img = {"rgb": None, "depth": None}
         self.prev_filtered_img = {"h": None, "s": None, "v": None, "depth": None}
+        self.camera = image_geometry.PinholeCameraModel()
 
     def add_rgb_data(self, msg):
         self.combined_img["rgb"] = msg
@@ -43,8 +53,11 @@ class BoxDetection(Node):
     def add_depth_data(self, msg):
         self.combined_img["depth"] = msg
 
-    def detect_contours(self):
-        if self.combined_img["rgb"] is None or self.combined_img["depth"] is None:
+    def add_camera_info(self, msg):
+        self.camera.from_camera_info(msg)
+
+    def detect_boxes(self):
+        if self.combined_img["rgb"] is None or self.combined_img["depth"] is None or self.camera.get_tf_frame is None:
             return
 
         # Convert ROS2 images to OpenCV
@@ -135,7 +148,7 @@ class BoxDetection(Node):
         )
 
         # Draws the area representing the contour, bounding box and label
-        detected_boxes = self.findBoxes(img_rgb, img_depth, contours_depth + contours)
+        detected_boxes = self.findBoxes(img_depth, contours_depth + contours)
         img_rgb = self.drawBoxes(img_rgb, detected_boxes, alpha=0.2)
 
         # Publish result
@@ -182,19 +195,20 @@ class BoxDetection(Node):
 
         return cv2.findContours(img, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
 
-    def findBoxes(self, img_rgb: np.ndarray, img_depth: np.ndarray, contours: tuple):
-        # Create a detection mask to highlight boxes with transparent color
+    def findBoxes(self, img_depth: np.ndarray, contours: tuple):
+        # Create a detection mask that highlights detected boxes with transparent color
         detected_boxes = []
         for cnt in contours:
-            depth = 0
-            for point in cnt:
-                depth += img_depth[point[0][1], point[0][0]]
-            depth = round(depth / len(cnt))
+            depth = np.mean([img_depth[point[0][1], point[0][0]] for point in cnt])
 
             box_contour = cv2.boxPoints(cv2.minAreaRect(cnt))
             box_contour = np.int0(box_contour)
-            l1, l2 = utils.distance(box_contour[0], box_contour[1]), utils.distance(
-                box_contour[1], box_contour[2]
+
+            p1 = utils.get_XYZ_from_Pixels(self.camera, box_contour[0][0], box_contour[0][1], depth)
+            p2 = utils.get_XYZ_from_Pixels(self.camera, box_contour[1][0], box_contour[1][1], depth)
+            p3 = utils.get_XYZ_from_Pixels(self.camera, box_contour[2][0], box_contour[2][1], depth)
+            l1, l2 = math.dist(p1, p2), math.dist(
+                p2, p3
             )
 
             if l1 >= l2:
@@ -203,33 +217,24 @@ class BoxDetection(Node):
                 l1, l2 = l2, l1
                 longest_side_coords = [box_contour[1], box_contour[2]]
 
-            ratio = l1 / l2
-            area = l1 * l2
+            box_dim = [[0.255, 0.155, 0.100], [0.340, 0.250, 0.095]]
+            errors = [((l1-box_dim[0][0])**2 + (l2-box_dim[0][1])**2), ((l1-box_dim[1][0])**2 + (l2-box_dim[1][1])**2)]
 
-            #   ratios: x-y     y-z     z-x
-            #   medium: 1.36    2.63    3.58
-            #   small:  1.64    1.55    2.55
-            # lim_low = (1.36 + 1.55)/2
-            lim_low = 1.48
-            lim_high = (2.63 + 2.55) / 2
-            diff = 0.1
-
-            if lim_low <= ratio <= lim_high:
+            if errors[0] <= errors[1]:
                 classification = "Small"
-            elif 1.36 - diff < ratio < 3.58 + diff:
-                classification = "Medium"
             else:
-                classification = ""
+                classification = "Medium"
+                errors[0], errors[1] = errors[1], errors[0]
 
-            if 2800 < area < 15000 and classification:
+            if errors[0] < 0.008:
                 valid = True
                 M = cv2.moments(cnt)
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
                 for prev_cnts in detected_boxes:
                     if (
-                        prev_cnts[0][0] <= cx <= prev_cnts[0][0] + prev_cnts[0][2]
-                        and prev_cnts[0][1] <= cy <= prev_cnts[0][1] + prev_cnts[0][3]
+                        (prev_cnts[0][0] <= cx <= prev_cnts[0][0] + prev_cnts[0][2]
+                        and prev_cnts[0][1] <= cy <= prev_cnts[0][1] + prev_cnts[0][3])
                     ):
                         valid = False
                         break

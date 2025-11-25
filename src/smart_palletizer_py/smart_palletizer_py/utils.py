@@ -3,10 +3,6 @@ import math
 import numpy as np
 
 
-def distance(a, b):
-    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
-
-
 def time_filter(img: np.ndarray, prev_filtered_img, alpha=0.5, delta=20):
     if not isinstance(prev_filtered_img, np.ndarray):
         return img
@@ -281,3 +277,10 @@ def quaternion_from_euler(ai, aj, ak):
     q[3] = cj * cc + sj * ss
 
     return q
+
+
+def get_XYZ_from_Pixels(camera, u, v, d):
+    X, Y, Z = camera.project_pixel_to_3d_ray((u, v))
+    factor = d / (1000 * Z)
+
+    return X * factor, Y * factor, Z * factor

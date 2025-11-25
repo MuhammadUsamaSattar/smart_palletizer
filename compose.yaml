@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  smart_palletizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart_palletizer
+    environment:
+      - ROS_DOMAIN_ID=0
+      - DISPLAY=$DISPLAY
+#      - ROS_NAMESPACE=/camera_filtered
+#      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    # Mount local workspace for live development
+    volumes:
+      - ./src:/workspace/src:cached
+      - ./data:/workspace/data:cached
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    # Use host networking for ROS2 topics
+    network_mode: "host"
+    # Start bash by default; you can override with ros2 launch
+    entrypoint: ["/usr/bin/tini", "--"]
+    command: ["/bin/bash"]
+    tty: true
