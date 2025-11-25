@@ -1,103 +1,88 @@
 # smart_palletizer
 
-[[_TOC_]]
-
 ## Introduction
 
-Welcome to the [NEURA robotics](https://neura-robotics.com) Smart Palletizer challenge, the goal of this challenge is to assess your knowledge regarding various software development topics.
+This repository applies computer vision algorithms to a ROS2 bag data-stream to process color and depth data, detect boxes placed on a pallet, and estimate poses.
 
 ## Instructions
 
-You are free to use **Python or C++**, preferably with Robotics Operating System ([**ROS**](https://www.ros.org)) either ROS1 or ROS2.
+The project has been developed using Ubuntu 24.04 with ROS2 Jazzy. It is recommended to use these versions as other combinations have not been tested. Make sure that you completely and accurately follow the [ROS2 Jazzy install instructions.](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html) Make sure that you have `python` and `pip` installed.
 
-Please explain your **methodology** into solving the challenging tasks either via updating this readme file or via creating a separate Markdown file. 
-
-> Please note that using [ChatGPT](https://chatgpt.com) is OK as long as you understand what you copy from there!.
-
-## Tasks
-
-Tasks have various complexity, optimal thing is to solve them all, however if you didn't solve some tasks please submit your code.
-
-> Tasks are not interdependent.
-
-### Input 
-
-![color_image](/data/medium_box/color_image.png)
-
-Data are provided in two formats:
-1. ROSBAG:
-
-    If you use **ROS**, please download and use the [ROS bag](https://drive.google.com/file/d/1ldM94Tz_I5NytLaQB8AydF_pxDG7EOkd/view?usp=sharing) which contains data needed to achieve the task.
-2. RAW data:
-
-    the [data](./data/) folder, there you can find two types of boxes:
-    1. **small box**: dimensions: [0.340, 0.250, 0.095] in meters.
-    2. **medium box**: dimensions: [0.255, 0.155, 0.100] in meters (only one box in the left bottom corner is visible).
-
-    Provided data includes color/depth images in addition to box meshes, and other forms of data that is useful to solve the tasks.
-
-
-### 1. 2D boxes detection
-
----
-
-The goal of this task is to detect and small box, and medium box from color/depth images:
-
-Note that you are free to use classical detection methods, or even [**synthetic**](https://github.com/DLR-RM/BlenderProc) data generated using the provided mesh files to achieve this task.
-
-Here is an example of detected medium box:
-![medium_box](./docs/imgs/medium_box.png)
-
-
-### 2. Planar patches detection (3D)
-
----
-
-The goal of this task is to detect planar surfaces in the point cloud of the boxes that might represent any of box sides and group them according to the box that they belong to.
-
-![planar_patches](./docs/imgs/planar_patches.png)
-
-### 3. Point Cloud post processing
-
----
-
-Raw Point Clouds provided in the data folder are noisy, the goal of this task is to post-process the pointcloud to get a clean pointcloud for further processing, without jeopardizing the dimensions of the box too much.
-
-![clean_cloud](./docs/imgs/clean_cloud.png)
-
-### 4. Boxe Poses Estimation
-
----
-
-This task aims to estimate 6D poses (Translation, Orientation) of the boxes in the scene:
-
-![boxes_poses](./docs/imgs/boxes_poses.png)
-
-## Evaluation
-
-1. **Methodology** correctness into solving the challenge, please explain your efforts into solving the challenge rather than sending code only.
-1. **Code validity** your code for the submitted tasks has to compile on our machines, hence we ask you kindly to provide clear instructions on how to compile/run your code, please don't forget to mention depndency packages with their versions to reproduce your steps.
-3. **Code Quality** we provide empty templates e.g. `.gitignore`, `docker`, `CI`, Documentation, they are **optional**, keep in mind that best practices are appreciated and can add **extra points** to your submission.
-4. **Visualization** it would be nice if you can provide visual results of what you have done: images, videos, statistics to represent your results.
-5. **ChatGPT / Gemini** are useful tools if you use them wisely, however original work / ideas are always regarded with higher appreciation and gain more points, we remind you that we might fail the challenge if you misuse them (*e.g. copy paste code without understanding*).
-
-## Documentation
-
-Documenting your code is appreciated as you can explain the functionality in standardized way, hence we provide you with a Python template to compile your [documented functions/classes](https://www.geeksforgeeks.org/python-docstrings):
-
-```sh
-sudo apt-get install texlive-latex-base texlive-fonts-recommended texlive-fonts-extra texlive-latex-extra latexmk
-#
-cd smart_palletizer/docs
-pip3 install -U pip
-pip3 install -r requirements.txt
-make clean && sphinx-apidoc -f -o source ../src/smart_palletizer
-make html SPHINXBUILD="python3 <path_to_sphinx>/sphinx-build"
-##----------
-## Example:
-##----------
-# make html SPHINXBUILD="python3 $HOME/venv/bin/sphinx-build"
+Clone this repository and make sure you have sourced the ROS2 installation:
 ```
----
+source /path/to/ros2/setup.bash
+```
+Usually, the path to ROS2 is `/opt/ros2/${ROS_DISTRO}`.
 
-If you are using C++, then please refer to [Doxygen](https://www.doxygen.nl)
+In the root folder of the cloned repository:
+```
+sudo apt-get update
+sudo apt-get upgrade
+rosdep init
+rosdep update
+rosdep install --from-paths src -yi
+```
+You might need to use `sudo` with `rosdep init`.
+
+Build and source the built project:
+```
+colcon build 
+source install/setup.bash
+```
+
+A [ROS2 compatible bag](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) file must be downloaded and extracted.
+
+There are three convenient launch files that you can use to test and visualize the different features of the project.
+
+- To see the results of post processing the point cloud:
+    ```
+    ros2 launch smart_palletizer_py post_processing.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
+    ```
+- To see the results of box detection:
+    ```
+    ros2 launch smart_palletizer_py box_detection.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
+    ```
+- To see the results of pose detection:
+    ```
+    ros2 launch smart_palletizer_py pose_detection.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
+    ```
+
+## Method and Results
+
+This section explains the methodology and shows visualizations for each feature.
+
+### Post Processing
+- Image and depth data were downsampled by a factor of 2 using the median value of each subsampling array. This allowed faster processing and improved rviz2 performance during visualization.
+- Holes (`val=0`) in the depth image were patched using the minimum value among the 3x1 column to the left of each pixel. This hole patching algorithm was run multiple times to patch thicker hole regions.
+- Median blur was applied to the depth image to reduce noise without losing edges. A bidirectional EMA spatial filter was also tested, but due to its iterative nature (and the code being written in Python), the temporal performance was poor.
+- The depth map was passed through an EMA time filter to further minimize noise.
+
+The top image shows the unfiltered data, while the bottom one shows the filtered result.
+
+![Unfiltered depth cloud](docs/results/post_processing_unfiltered.gif)
+![Filtered depth cloud](docs/results/post_processing_filtered.gif)
+
+### Box Detection
+- The filtered color and depth images from the Post Processing node were taken. The color image was converted to HSV format as hues are distinguishable by the H value.
+- Histograms of V values were equalized, resulting in sharper contrast in the complete HSV image.
+- All 3 channels of the HSV image were passed through an EMA time filter to remove noise.
+- A mask was created using the depth map to include only depths between the pallet and the top-most box.
+- The HSV image was appended with the depth image channel. This combined image was masked using the mask.
+- Contours were detected in two images: the combined image and the depth image. The combined image gave contours that were sufficiently differentiated in all 4 channels, while the contours from depth catered to objects whose contours were harder to detect due to interference from the HSV channels (for example, tapes and barcodes).
+- Bounding boxes and minimum enclosing rectangles of contours were detected. The minimum enclosing rectangle was then used to get real-world lengths of the boxes. These lengths were compared to the reference lengths of the small and medium boxes. The class with minimal error was chosen as the class for the box.
+- Information about the centroid and longest length of the boxes was published as a message for downstream tasks.
+
+![Detected boxes in image](docs/results/box_detection.gif)
+
+### Pose Detection
+- The message containing information about the boxes was taken from the Box Detection node. This information contained centroid coordinates and the length of the longest side of the box.
+- x-axis was assigned to the longest side, y-axis to the second longest and z-axis to the smallest in the reference dimensions. All boxes in the image can then be seen to have the z-axis pointing downwards (away from the picture). Therefore, the visible side shows the XY plane.
+- The angle of the longest side was calculated with respect to the x-axis of the image. This angle was then converted to quaternion angles.
+- The centroid and quaternion were used to broadcast the transform frame for each box.
+
+![Detected poses](docs/results/pose_detection.gif)
+
+> **Future:** Both sides of the detected contour (rather than just the longest side) should be compared to the visible box side. The algorithm will then be valid, even if the XY-plane condition does not hold.
+
+Planar Surfaces
+> **Future:** The planar surfaces can be detected using algorithms like RANSAC. They can also be implemented using the poses detected in the Pose Detection node and offsetting the transform in the z-direction by a value H/2. A URDF file for the correct box (small or medium) can then be imported into rviz2 using RobotStatePublisher.

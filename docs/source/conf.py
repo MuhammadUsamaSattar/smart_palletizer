@@ -13,7 +13,10 @@
 
 import subprocess
 from pbr.version import VersionInfo
+import sys
+import os
 
+sys.path.insert(0, os.path.abspath('../../src/smart_palletizer_py'))
 ## Version
 _v = VersionInfo('neurapy_ai_utils').semantic_version()
 __version__ = _v.release_string()
