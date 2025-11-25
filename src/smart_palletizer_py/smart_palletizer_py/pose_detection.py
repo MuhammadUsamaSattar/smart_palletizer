@@ -11,34 +11,51 @@ from tf2_ros import TransformBroadcaster
 
 
 class PoseDetection(Node):
-    def __init__(self):
+    """Detect pose of boxes."""
+
+    def __init__(self) -> None:
         super().__init__("pose_detection")
+
         self.camera = image_geometry.PinholeCameraModel()
         self.transform_broadcaster = TransformBroadcaster(self)
+        self.detected_boxes = None
 
+        # Subscription for box information
         self.detected_boxes_subscription_ = self.create_subscription(
             DetectedBoxes, "/detected_boxes", self.add_detected_boxes, 10
         )
+        # Subscription for filtered rgb image
         self.camera_info_subscription_ = self.create_subscription(
             CameraInfo, "/camera_filtered/color/camera_info", self.add_camera_info, 10
         )
 
         self.create_timer(1 / 30, self.detect_pose)
 
-        self.detected_boxes = None
+    def add_detected_boxes(self, msg: DetectedBoxes) -> None:
+        """Add box information to instance attribute.
 
-    def add_detected_boxes(self, msg):
+        Args:
+            msg (DetectedBoxes): DetectedBoxes message.
+        """
         self.detected_boxes = msg
 
-    def add_camera_info(self, msg):
+    def add_camera_info(self, msg: CameraInfo) -> None:
+        """Add camera information to instance attribute.
+
+        Args:
+            msg (CameraInfo): CameraInfo message.
+        """
         self.camera.from_camera_info(msg)
 
-    def detect_pose(self):
+    def detect_pose(self) -> None:
+        """Detect poses of boxes."""
+        # If instance attributes have not been assigned, then skip
         if self.detected_boxes is None or self.camera.get_tf_frame is None:
             return
 
         number_boxes = 1
         for detected_box in self.detected_boxes.data:
+            # Create message
             box_tf = TransformStamped()
 
             box_tf.header.stamp = self.get_clock().now().to_msg()
@@ -46,10 +63,15 @@ class PoseDetection(Node):
             box_tf.child_frame_id = "box_" + str(number_boxes)
             number_boxes += 1
 
-            x, y, z = utils.get_XYZ_from_Pixels(self.camera, detected_box.x, detected_box.y, detected_box.depth)
+            # Get real world co-ordinates of point
+            x, y, z = utils.get_XYZ_from_Pixels(
+                self.camera, detected_box.x, detected_box.y, detected_box.depth
+            )
             box_tf.transform.translation.x = float(x)
             box_tf.transform.translation.y = float(y)
             box_tf.transform.translation.z = float(z)
+
+            # Calculate the angle of longest side from x-axis and convert rotation to quaternion
             theta = math.atan2(
                 (
                     detected_box.longest_side_coords[0].y

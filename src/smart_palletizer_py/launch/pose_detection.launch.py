@@ -25,9 +25,11 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            # Declare launch arguments
             main_node_arg,
             bag_path_arg,
             viz_downscaling_factor_arg,
+            # Run rviz2
             Node(
                 condition=IfCondition(LaunchConfiguration("main_node")),
                 package="rviz2",
@@ -51,6 +53,7 @@ def generate_launch_description():
                     }
                 ],
             ),
+            # Run box detection launch file
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution(
@@ -68,6 +71,7 @@ def generate_launch_description():
                     "namespace": "/camera_filtered",
                 }.items(),
             ),
+            # Run post processing node with downscaling for visualization
             bag_path_arg,
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -86,6 +90,7 @@ def generate_launch_description():
                     "namespace": "/camera_downscaled_filtered",
                 }.items(),
             ),
+            # Run pose detection node
             Node(
                 package="smart_palletizer_py",
                 executable="pose_detection",

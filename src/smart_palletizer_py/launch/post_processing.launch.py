@@ -32,11 +32,13 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            # Declare launch arguments
             main_node_arg,
             bag_path_arg,
             run_bag_arg,
             downscaling_factor_arg,
             namespace_arg,
+            # Run post processing node's rviz2 file if this is main launch file
             Node(
                 condition=IfCondition(LaunchConfiguration("main_node")),
                 package="rviz2",
@@ -60,6 +62,7 @@ def generate_launch_description():
                     }
                 ],
             ),
+            # Run ros2 bag using dataset file
             ExecuteProcess(
                 condition=IfCondition(LaunchConfiguration("run_bag")),
                 cmd=[
@@ -73,6 +76,7 @@ def generate_launch_description():
                 ],
                 output="screen",
             ),
+            # Run post processing node
             Node(
                 package="smart_palletizer_py",
                 executable="post_processing",

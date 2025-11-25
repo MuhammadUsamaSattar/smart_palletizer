@@ -8,7 +8,7 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-def generate_launch_description():
+def generate_launch_description() -> LaunchDescription:
     main_node_arg = DeclareLaunchArgument(
         "main_node",
         description="Launches the rviz2 window for this task if it is the main node",
@@ -25,9 +25,11 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            # Declare launch arguments
             main_node_arg,
             bag_path_arg,
             downscaling_factor_arg,
+            # Run rviz2 node if this is main launch file
             Node(
                 condition=IfCondition(LaunchConfiguration("main_node")),
                 package="rviz2",
@@ -51,6 +53,7 @@ def generate_launch_description():
                     }
                 ],
             ),
+            # Run post_processing node
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution(
@@ -68,6 +71,7 @@ def generate_launch_description():
                     "namespace": "/camera_filtered",
                 }.items(),
             ),
+            # Run box detection node
             Node(
                 package="smart_palletizer_py",
                 executable="box_detection",
