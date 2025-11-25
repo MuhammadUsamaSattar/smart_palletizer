@@ -1,2 +1,14 @@
 *Identifier
-data/
+data/smart_palletizing_data*
+/build
+install/
+log/
+.vscode/
+old_setup.py
+test.py
+smart_palletizer_cpp/
+__pycache__
+.gitlab*
+compose.yaml1
+Dockerfile1
+/requirements.txt1
