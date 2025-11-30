@@ -1,0 +1,12 @@
+<robot name="medium_box">
+    <link>
+        <visual name="box">
+            <geometry name="visual">
+                <box size="0.340, 0.250, 0.095"/>
+            </geometry>
+            <material>
+                <color rgba="0.0 255.0 0.0 255.0"/>
+            </material>
+        </visual>
+    </link>
+</robot>
