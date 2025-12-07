@@ -1,11 +1,13 @@
 import math
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, PoseArray
 import image_geometry
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo
-from smart_palletizer_interfaces.msg import DetectedBoxes
+from std_msgs.msg import Header
+from smart_palletizer_interfaces.msg import DetectedBoxes, BoxInfo, BoxInfoArray
 from smart_palletizer_py import utils
 from tf2_ros import TransformBroadcaster
 
@@ -29,6 +31,10 @@ class PoseDetection(Node):
             CameraInfo, "/camera_filtered/color/camera_info", self.add_camera_info, 10
         )
 
+        self.box_info_array_publisher_ = self.create_publisher(
+            BoxInfoArray, "/box_info_array", 10
+        )
+
         self.create_timer(1 / 30, self.detect_pose)
 
     def add_detected_boxes(self, msg: DetectedBoxes) -> None:
@@ -50,17 +56,21 @@ class PoseDetection(Node):
     def detect_pose(self) -> None:
         """Detect poses of boxes."""
         # If instance attributes have not been assigned, then skip
-        if self.detected_boxes is None or self.camera.get_tf_frame is None:
+        if self.detected_boxes is None or np.isnan(self.camera.P).any():
             return
 
         number_boxes = 1
+        header = self.detected_boxes.header
+
+        box_info_array_msg = BoxInfoArray()
+        box_info_array_msg.header = header
         for detected_box in self.detected_boxes.data:
             # Create message
             box_tf = TransformStamped()
 
-            box_tf.header.stamp = self.get_clock().now().to_msg()
-            box_tf.header.frame_id = "camera_color_optical_frame"
-            box_tf.child_frame_id = "box_" + str(number_boxes)
+            box_tf.header = header
+            # box_tf.child_frame_id = detected_box.classification + "_" + str(number_boxes)
+            box_tf.child_frame_id = detected_box.id
             number_boxes += 1
 
             # Get real world co-ordinates of point
@@ -89,7 +99,18 @@ class PoseDetection(Node):
             box_tf.transform.rotation.z = float(q[2])
             box_tf.transform.rotation.w = float(q[3])
 
+            box_info_msg = BoxInfo()
+            box_info_msg.id = box_tf.child_frame_id
+            box_info_msg.pose.position.x = box_tf.transform.translation.x
+            box_info_msg.pose.position.y = box_tf.transform.translation.y
+            box_info_msg.pose.position.z = box_tf.transform.translation.z
+            box_info_msg.pose.orientation = box_tf.transform.rotation
+            box_info_msg.classification = detected_box.classification
+            box_info_array_msg.infos.append(box_info_msg)
+
             self.transform_broadcaster.sendTransform(box_tf)
+
+        self.box_info_array_publisher_.publish(box_info_array_msg)
 
 
 def main(args=None):

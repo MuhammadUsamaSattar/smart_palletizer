@@ -6,7 +6,7 @@ Panels:
       Expanded:
         - /DepthCloud1/Auto Size1
       Splitter Ratio: 0.5
-    Tree Height: 204
+    Tree Height: 100
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -71,33 +71,9 @@ Visualization Manager:
       Enabled: true
       Filter (blacklist): ""
       Filter (whitelist): ""
-      Frame Timeout: 15
+      Frame Timeout: 1
       Frames:
         All Enabled: false
-        box_1:
-          Value: true
-        box_10:
-          Value: true
-        box_11:
-          Value: true
-        box_12:
-          Value: true
-        box_2:
-          Value: true
-        box_3:
-          Value: true
-        box_4:
-          Value: true
-        box_5:
-          Value: true
-        box_6:
-          Value: true
-        box_7:
-          Value: true
-        box_8:
-          Value: true
-        box_9:
-          Value: true
         camera_color_optical_frame:
           Value: false
         flange:
@@ -120,17 +96,47 @@ Visualization Manager:
           Value: false
         link7:
           Value: false
+        medium_1:
+          Value: true
+        medium_13:
+          Value: true
         root_link:
           Value: false
+        small_1:
+          Value: true
+        small_10:
+          Value: true
+        small_11:
+          Value: true
+        small_12:
+          Value: true
+        small_13:
+          Value: true
+        small_2:
+          Value: true
+        small_3:
+          Value: true
+        small_4:
+          Value: true
+        small_5:
+          Value: true
+        small_6:
+          Value: true
+        small_7:
+          Value: true
+        small_8:
+          Value: true
+        small_9:
+          Value: true
         threejs_link:
           Value: false
         world:
           Value: false
-      Marker Scale: 0.75
+      Marker Scale: 0.5
       Name: TF
       Show Arrows: false
       Show Axes: true
-      Show Names: false
+      Show Names: true
       Tree:
         world:
           root_link:
@@ -142,29 +148,35 @@ Visualization Manager:
                       link5:
                         link6:
                           camera_color_optical_frame:
-                            box_1:
+                            medium_1:
                               {}
-                            box_10:
+                            medium_13:
                               {}
-                            box_11:
+                            small_1:
                               {}
-                            box_12:
+                            small_10:
                               {}
-                            box_2:
+                            small_11:
                               {}
-                            box_3:
+                            small_12:
                               {}
-                            box_4:
+                            small_13:
                               {}
-                            box_5:
+                            small_2:
                               {}
-                            box_6:
+                            small_3:
                               {}
-                            box_7:
+                            small_4:
                               {}
-                            box_8:
+                            small_5:
                               {}
-                            box_9:
+                            small_6:
+                              {}
+                            small_7:
+                              {}
+                            small_8:
+                              {}
+                            small_9:
                               {}
                           link7:
                             flange:
@@ -188,7 +200,7 @@ Visualization Manager:
         Value: /camera/color/image_raw
       Value: true
       Visibility:
-        DepthCloud: true
+        DepthCloud: false
         TF: true
         Value: true
       Zoom Factor: 1
@@ -263,10 +275,10 @@ Window Geometry:
     collapsed: false
   Displays:
     collapsed: false
-  Height: 1007
+  Height: 1011
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000004000000000000045700000355fc0200000009fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073000000003b00000155000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000c00430061006d006500720061010000003b000003550000001600ffffff000000010000010f00000355fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b00000355000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000007740000003efc0100000002fb0000000800540069006d00650100000000000007740000025300fffffffb0000000800540069006d00650100000000000004500000000000000000000003170000035500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000004000000000000045700000351fc0200000009fb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005d00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c006100790073010000003f000000f2000000cc00fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000c00430061006d0065007200610100000137000002590000001700ffffff000000010000010f00000355fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b00000355000000a900fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e100000197000000030000073e0000003efc0100000002fb0000000800540069006d006501000000000000073e0000026f00fffffffb0000000800540069006d00650100000000000004500000000000000000000002e10000035100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:
@@ -275,6 +287,6 @@ Window Geometry:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1908
-  X: 0
-  Y: 0
+  Width: 1854
+  X: 66
+  Y: 32

@@ -110,6 +110,7 @@ class PostProcessing(Node):
         if self.img_depth is None or self.img_rgb is None or self.camera_info is None:
             return
 
+        header = self.img_rgb.header
         # Convert image message to OpenCV image
         bridge = cv_bridge.CvBridge()
         img_depth = bridge.imgmsg_to_cv2(self.img_depth, "16UC1")
@@ -120,12 +121,8 @@ class PostProcessing(Node):
             self.get_parameter("downscaling_factor").get_parameter_value().integer_value
         )
         if down_scaling_factor != 1:
-            img_depth = subsample(
-                img_depth, factor=down_scaling_factor, method="auto"
-            )
-            img_rgb = subsample(
-                img_rgb, factor=down_scaling_factor, method="auto"
-            )
+            img_depth = subsample(img_depth, factor=down_scaling_factor, method="auto")
+            img_rgb = subsample(img_rgb, factor=down_scaling_factor, method="auto")
 
         # Remove holes in depth image
         img_depth = holePatching(img_depth, 3, "max", "L-2D-Excl", max_iter=8)
@@ -139,10 +136,6 @@ class PostProcessing(Node):
         ).copy()
 
         # Construct messages for filtered rgb image, depth image and camera info
-        header = Header()
-        header.frame_id = "camera_color_optical_frame"
-        header.stamp = self.get_clock().now().to_msg()
-
         msg = bridge.cv2_to_imgmsg(img_depth, "16UC1", header)
         self.filtered_depth_publisher_.publish(msg)
 
@@ -155,6 +148,7 @@ class PostProcessing(Node):
         camera_info_msg.width = camera_info_msg.width // down_scaling_factor
         camera_info_msg.k = camera_info_msg.k / down_scaling_factor
         camera_info_msg.p = camera_info_msg.p / down_scaling_factor
+
         self.filtered_depth_camera_info_publisher_.publish(camera_info_msg)
         self.filtered_rgb_camera_info_publisher_.publish(camera_info_msg)
 

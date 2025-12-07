@@ -11,3 +11,4 @@ compose.yaml
 Dockerfile
 /requirements.txt
 old_setup.py
+/**/test.py

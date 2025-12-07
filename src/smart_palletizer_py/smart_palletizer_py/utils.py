@@ -1,9 +1,13 @@
+from collections import namedtuple
 import math
 from typing import Tuple
 
 import numpy as np
 from image_geometry import PinholeCameraModel
 
+BOX_DIMS = namedtuple("BOX_DIMS", ['x', 'y', 'z'])
+SMALL_BOX_DIMS = BOX_DIMS(x = 0.255, y = 0.155, z = 0.100)
+MEDIUM_BOX_DIMS = BOX_DIMS(x = 0.340, y = 0.250, z = 0.095)
 
 def time_filter(
     img: np.ndarray, prev_filtered_img: np.ndarray, alpha: float = 0.5, delta: int = 20

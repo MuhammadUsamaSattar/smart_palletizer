@@ -1,11 +1,100 @@
+from collections import defaultdict
+
 import rclpy
 from rclpy.node import Node
-from tf2_ros import TransformBroadcaster, TransformStamped, TransformListener
-from sensor_msgs.msg import JointState
+from tf2_ros import TransformBroadcaster
+from std_msgs.msg import Header
+from visualization_msgs.msg import Marker, MarkerArray
+from builtin_interfaces.msg import Duration
+
+from smart_palletizer_py import utils
+from smart_palletizer_interfaces.msg import BoxInfoArray
+
 
 class BoxSpawn(Node):
     def __init__(self):
-        super().__init__()
+        super().__init__("box_spawn")
 
-        self.transform_broadcaster_ = TransformBroadcaster()
+        self.transform_broadcaster_ = TransformBroadcaster(self)
 
+        self.box_info_array_subsriber_ = self.create_subscription(
+            BoxInfoArray,
+            "/box_info_array",
+            self.spawn_boxes,
+            10,
+        )
+
+        self.marker_array_publisher_ = self.create_publisher(
+            MarkerArray, "/box_markers_array", 10
+        )
+
+        self.box_ids = defaultdict(lambda: None)
+
+    def spawn_boxes(self, msg):
+        marker_array = MarkerArray()
+        header = msg.header
+
+        for box_info in msg.infos:
+            marker = Marker()
+            if box_info.classification == "small":
+                x = utils.SMALL_BOX_DIMS.x
+                y = utils.SMALL_BOX_DIMS.y
+                z = utils.SMALL_BOX_DIMS.z
+
+                r = 1.0
+                g = 0.0
+                b = 0.0
+                a = 1.0
+
+            elif box_info.classification == "medium":
+                x = utils.MEDIUM_BOX_DIMS.x
+                y = utils.MEDIUM_BOX_DIMS.y
+                z = utils.MEDIUM_BOX_DIMS.z
+
+                r = 0.0
+                g = 1.0
+                b = 0.0
+                a = 1.0
+
+            marker.header = header
+            marker.ns = "box"
+            marker.id = int(box_info.id.split("_")[-1])
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+
+            marker.pose.position.x = box_info.pose.position.x
+            marker.pose.position.y = box_info.pose.position.y
+            marker.pose.position.z = box_info.pose.position.z + z / 2
+
+            marker.pose.orientation.x = box_info.pose.orientation.x
+            marker.pose.orientation.y = box_info.pose.orientation.y
+            marker.pose.orientation.z = box_info.pose.orientation.z
+            marker.pose.orientation.w = box_info.pose.orientation.w
+
+            marker.scale.x = x
+            marker.scale.y = y
+            marker.scale.z = z
+
+            marker.color.r = r
+            marker.color.g = g
+            marker.color.b = b
+            marker.color.a = a
+
+            marker.lifetime = Duration(sec=1, nanosec=0)
+            marker.frame_locked = True
+
+            marker_array.markers.append(marker)
+
+        self.marker_array_publisher_.publish(marker_array)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = BoxSpawn()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

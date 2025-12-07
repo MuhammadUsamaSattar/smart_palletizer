@@ -1,5 +1,5 @@
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import cv2
 from cv_bridge import CvBridge
@@ -25,7 +25,7 @@ class BoxDetection(Node):
         self.img_rgb = None
         self.camera = image_geometry.PinholeCameraModel()
         self.prev_filtered_img = {"h": None, "s": None, "v": None, "depth": None}
-        self.camera = image_geometry.PinholeCameraModel()
+        self.detected_boxes = {"n": 0, "box_infos": {}}
 
         # Publisher for image with bounding boxes for detected boxes
         self.detected_box_img_publisher_ = self.create_publisher(
@@ -90,6 +90,8 @@ class BoxDetection(Node):
             or self.camera.get_tf_frame is None
         ):
             return
+
+        header = self.img_rgb.header
 
         # Convert ROS2 images to OpenCV
         img_depth = self.bridge.imgmsg_to_cv2(self.img_depth, desired_encoding="16UC1")
@@ -169,24 +171,21 @@ class BoxDetection(Node):
             dilation_iterations=2,
         )
 
-        # Draws the areas representing the boxes, bounding boxes and labels
-        detected_boxes = self.getBoxes(img_depth, contours_depth + contours)
-        img_rgb = self.drawBoxes(img_rgb, detected_boxes, alpha=0.2)
+        # Detects and draws the areas representing the boxes, bounding boxes and labels
+        self.getBoxes(img_depth, contours_depth + contours)
+        img_rgb = self.drawBoxes(img_rgb, alpha=0.2)
 
         ### --- Publish messages --- ###
-        header = Header()
-        header.frame_id = "camera_color_optical_frame"
-        header.stamp = self.get_clock().now().to_msg()
-
-        img_msg = self.bridge.cv2_to_imgmsg(img_rgb, "passthrough", header)
-        self.detected_box_img_publisher_.publish(img_msg)
-
         detected_boxes_data = []
-        for _, _, box_info in detected_boxes:
+        for k, (_, _, box_info, updated) in self.detected_boxes["box_infos"].items():
+            if not updated:
+                continue
             x, y, longest_side_coords, depth, classification = box_info
+
             detected_box = DetectedBox()
             detected_box.x = int(x)
             detected_box.y = int(y)
+            detected_box.id = k
             detected_box.longest_side_coords[0].x = int(longest_side_coords[0][0])
             detected_box.longest_side_coords[0].y = int(longest_side_coords[0][1])
             detected_box.longest_side_coords[1].x = int(longest_side_coords[1][0])
@@ -198,6 +197,9 @@ class BoxDetection(Node):
         detected_boxes_msg = DetectedBoxes()
         detected_boxes_msg.header = header
         detected_boxes_msg.data = detected_boxes_data
+
+        img_msg = self.bridge.cv2_to_imgmsg(img_rgb, "passthrough", header)
+        self.detected_box_img_publisher_.publish(img_msg)
         self.detected_boxes_publisher_.publish(detected_boxes_msg)
 
         # Reset images
@@ -249,7 +251,10 @@ class BoxDetection(Node):
             List[List[int, int, int, int], List[int, int], Tuple[int, int, List[int, int], int, str]]:
             Box information in the format [Bounding Box, Box Contour, Box Information].
         """
-        detected_boxes = []
+        # Assign all previous boxes as undetected
+        for k, prev_cnts in self.detected_boxes["box_infos"].items():
+            prev_cnts[3] = False
+
         for cnt in contours:
             # Calculate the average depth for each point in the contour
             depth = np.mean([img_depth[point[0][1], point[0][0]] for point in cnt])
@@ -278,58 +283,60 @@ class BoxDetection(Node):
                 longest_side_coords = (box_contour[1], box_contour[2])
 
             # Calculate the sum of squared error between the l1 and l2 and second-largest dim of each box
-            box_dim = [[0.255, 0.155, 0.100], [0.340, 0.250, 0.095]]
             errors = [
-                ((l1 - box_dim[0][0]) ** 2 + (l2 - box_dim[0][1]) ** 2),
-                ((l1 - box_dim[1][0]) ** 2 + (l2 - box_dim[1][1]) ** 2),
+                (
+                    (l1 - utils.SMALL_BOX_DIMS.x) ** 2
+                    + (l2 - utils.SMALL_BOX_DIMS.y) ** 2
+                ),
+                (
+                    (l1 - utils.MEDIUM_BOX_DIMS.x) ** 2
+                    + (l2 - utils.MEDIUM_BOX_DIMS.y) ** 2
+                ),
             ]
 
             # Assign classification as the box with lower error and assign error[0] as the smaller of the two errors
             if errors[0] <= errors[1]:
-                classification = "Small"
+                classification = "small"
             else:
-                classification = "Medium"
+                classification = "medium"
                 errors[0], errors[1] = errors[1], errors[0]
 
             # Process contour only if error is below threshold
             if errors[0] < 0.008:
-                valid = True
-
                 # Calculate the centroid of the contour
                 M = cv2.moments(cnt)
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
 
-                # If centroid intersects the contour of any previously added contour, then skip this contour
-                for prev_cnts in detected_boxes:
+                # Find a the bounding box for the contour
+                bounding_box = cv2.boundingRect(cnt)
+                # Data for the detected box
+                data = [
+                    bounding_box,
+                    box_contour,
+                    (cx, cy, longest_side_coords, depth, classification),
+                    True,
+                ]
+                # Difference in pixel values before two boxes are considered to be separate
+                diff = 20
+
+                # Assign box data to a close detected box in previous frame. Otherwise add the box as a new box.
+                for k, prev_cnts in self.detected_boxes["box_infos"].items():
                     if (
-                        prev_cnts[0][0] <= cx <= prev_cnts[0][0] + prev_cnts[0][2]
-                        and prev_cnts[0][1] <= cy <= prev_cnts[0][1] + prev_cnts[0][3]
+                        abs(prev_cnts[2][0] - cx) <= diff
+                        and abs(prev_cnts[2][1] - cy) <= diff
                     ):
-                        valid = False
+                        self.detected_boxes["box_infos"][k] = data
                         break
-
-                if valid:
-                    # Find a the bounding box for the contour
-                    bounding_box = cv2.boundingRect(cnt)
-
-                    # Add box information to the list
-                    detected_boxes.append(
-                        (
-                            bounding_box,
-                            box_contour,
-                            (cx, cy, longest_side_coords, depth, classification),
-                        )
-                    )
-
-        return detected_boxes
+                else:
+                    self.detected_boxes["box_infos"][
+                        "".join(("box_", str(self.detected_boxes["n"])))
+                    ] = data
+                    self.detected_boxes["n"] += 1
 
     def drawBoxes(
         self,
         img: np.ndarray,
-        detected_boxes: Tuple[
-            List[int], List[int], Tuple[int, int, Tuple[int, int], int, str]
-        ],
         alpha: float = 0.2,
     ) -> np.ndarray:
         """Draw the bounding box, box contour and box label.
@@ -346,7 +353,12 @@ class BoxDetection(Node):
         """
         contour_mask = np.zeros(img.shape, dtype=img.dtype)
 
-        for bounding_box, box_contour, box_info in detected_boxes:
+        for bounding_box, box_contour, box_info, updated in self.detected_boxes[
+            "box_infos"
+        ].values():
+            if not updated:
+                continue
+
             x, y, w, h = bounding_box
             cv2.drawContours(
                 contour_mask, [box_contour], -1, (0, 0, 255), thickness=cv2.FILLED
@@ -360,7 +372,7 @@ class BoxDetection(Node):
             cv2.rectangle(
                 img,
                 (x, y - 4),
-                (x + (60 if box_info[4] == "Medium" else 44), y - 24),
+                (x + (60 if box_info[4] == "medium" else 44), y - 24),
                 (0, 0, 0),
                 -1,
             )

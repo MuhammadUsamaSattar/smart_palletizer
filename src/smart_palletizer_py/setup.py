@@ -14,6 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.launch.py'))),
         (os.path.join('share', package_name, 'rviz2'), glob(os.path.join('rviz2', '*.rviz'))),
+        (os.path.join('share', package_name, 'urdf'), glob(os.path.join('urdf', '*.urdf'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -31,6 +32,7 @@ setup(
             'box_detection = smart_palletizer_py.box_detection:main',
             'post_processing = smart_palletizer_py.post_processing:main',
             'pose_detection = smart_palletizer_py.pose_detection:main',
+            'box_spawn = smart_palletizer_py.box_spawn:main',
         ],
     },
 )
