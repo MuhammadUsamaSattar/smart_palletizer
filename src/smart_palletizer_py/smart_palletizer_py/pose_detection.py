@@ -1,6 +1,6 @@
 import math
 
-from geometry_msgs.msg import TransformStamped, PoseArray
+from geometry_msgs.msg import TransformStamped
 import image_geometry
 import numpy as np
 import rclpy

@@ -1,5 +1,5 @@
 import math
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 
 import cv2
 from cv_bridge import CvBridge
@@ -8,7 +8,6 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
-from std_msgs.msg import Header
 
 from smart_palletizer_py import utils
 from smart_palletizer_interfaces.msg import DetectedBox, DetectedBoxes
@@ -238,18 +237,12 @@ class BoxDetection(Node):
             img, mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE
         )[0]
 
-    def getBoxes(
-        self, img_depth: np.ndarray, contours: List[List[List[int]]]
-    ) -> Tuple[List[int], List[int], Tuple[int, int, Tuple[int, int], int, str]]:
+    def getBoxes(self, img_depth: np.ndarray, contours: List[List[List[int]]]) -> None:
         """Get the boudning box, box contour and box information from contours.
 
         Args:
             img_depth (np.ndarray): Depth image.
             contours (List[List[List[int, int]]]): List containing contours.
-
-        Returns:
-            List[List[int, int, int, int], List[int, int], Tuple[int, int, List[int, int], int, str]]:
-            Box information in the format [Bounding Box, Box Contour, Box Information].
         """
         # Assign all previous boxes as undetected
         for k, prev_cnts in self.detected_boxes["box_infos"].items():

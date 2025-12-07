@@ -1,9 +1,6 @@
-from collections import defaultdict
-
 import rclpy
 from rclpy.node import Node
 from tf2_ros import TransformBroadcaster
-from std_msgs.msg import Header
 from visualization_msgs.msg import Marker, MarkerArray
 from builtin_interfaces.msg import Duration
 
@@ -27,8 +24,6 @@ class BoxSpawn(Node):
         self.marker_array_publisher_ = self.create_publisher(
             MarkerArray, "/box_markers_array", 10
         )
-
-        self.box_ids = defaultdict(lambda: None)
 
     def spawn_boxes(self, msg):
         marker_array = MarkerArray()

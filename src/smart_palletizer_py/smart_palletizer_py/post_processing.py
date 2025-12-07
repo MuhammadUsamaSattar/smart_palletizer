@@ -6,8 +6,8 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rcl_interfaces.msg import ParameterDescriptor
-from std_msgs.msg import Header
 from sensor_msgs.msg import Image, CameraInfo
+
 from smart_palletizer_py import utils
 
 

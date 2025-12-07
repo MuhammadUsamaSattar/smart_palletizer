@@ -1,12 +1,15 @@
 # smart_palletizer
 
+![Detected boxes in image](docs/results/box_detection.gif)
+![Spawned Boxes](docs/results/box_spawn.gif)
+
 ## Introduction
 
 This repository applies computer vision algorithms to a ROS2 bag data-stream to process color and depth data, detect boxes placed on a pallet, and estimate poses.
 
 ## Instructions
 
-The project has been developed using Ubuntu 24.04 with ROS2 Jazzy. It is recommended to use these versions as other combinations have not been tested. Make sure that you completely and accurately follow the [ROS2 Jazzy install instructions.](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html) Make sure that you have `python` and `pip` installed.
+The project has been developed using Ubuntu 24.04 with ROS2 Kilted. It is recommended to use these versions as other combinations have not been tested. Make sure that you completely and accurately follow the [ROS2 Kileted install instructions](https://docs.ros.org/en/kilted/Installation/Ubuntu-Install-Debs.html). Make sure that you have `python` and `pip` installed.
 
 Clone this repository and make sure you have sourced the ROS2 installation:
 ```
@@ -32,7 +35,7 @@ source install/setup.bash
 
 A [ROS2 compatible bag](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) file must be downloaded and extracted.
 
-There are three convenient launch files that you can use to test and visualize the different features of the project.
+There are four convenient launch files that you can use to test and visualize the different features of the project.
 
 - To see the results of post processing the point cloud:
     ```
@@ -45,6 +48,10 @@ There are three convenient launch files that you can use to test and visualize t
 - To see the results of pose detection:
     ```
     ros2 launch smart_palletizer_py pose_detection.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
+    ```
+- To see the spawned boxes according to detected poses:
+    ```
+    ros2 launch smart_palletizer_py box_spawn.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
     ```
 
 ## Method and Results
@@ -84,5 +91,10 @@ The top image shows the unfiltered data, while the bottom one shows the filtered
 
 > **Future:** Both sides of the detected contour (rather than just the longest side) should be compared to the visible box side. The algorithm will then be valid, even if the XY-plane condition does not hold.
 
-Planar Surfaces
-> **Future:** The planar surfaces can be detected using algorithms like RANSAC. They can also be implemented using the poses detected in the Pose Detection node and offsetting the transform in the z-direction by a value H/2. A URDF file for the correct box (small or medium) can then be imported into rviz2 using RobotStatePublisher.
+### Box Spawn
+- The detected pose from Pose Detection node was used to construct marker for each box.
+- The scale of the marker was set according to the identified class of the box.
+
+![Spawned Boxes](docs/results/box_spawn.gif)
+
+> **Future:** The planar surfaces can be detected using algorithms like RANSAC which is more reliable.
