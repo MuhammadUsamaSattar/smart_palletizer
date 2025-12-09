@@ -86,7 +86,7 @@ class BoxDetection(Node):
         if (
             self.img_rgb is None
             or self.img_depth is None
-            or self.camera.get_tf_frame is None
+            or np.isnan(self.camera.P).any()
         ):
             return
 

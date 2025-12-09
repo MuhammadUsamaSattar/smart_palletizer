@@ -1,19 +1,32 @@
 # syntax=docker/dockerfile:1
-ARG FROM_IMAGE=osrf/ros:kilted-desktop
 
-FROM ${FROM_IMAGE}
-RUN sudo apt-get update && \
-sudo apt-get -y upgrade
-
-RUN sudo apt-get -y install pip && \
-sudo apt-get -y install python3-venv
+FROM ros:kilted-ros-base AS builder
+RUN apt-get update && \
+    apt-get -y upgrade
 
 WORKDIR /smart_palletizer
+
 COPY src/ ./src/
-RUN rosdep update && \
-rosdep install --from-paths src -yi
-RUN bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && colcon build" && \
-    rm -rf /var/lib/apt/lists/* src build log
+
+RUN bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && \
+             rosdep update && \
+             rosdep install --from-paths src -yi && \
+             colcon build"
+
+FROM ros:kilted-ros-base AS runner
+COPY --from=builder /smart_palletizer/install/ /smart_palletizer/install
+WORKDIR /smart_palletizer
+
+RUN apt-get update && \
+    apt-get -y upgrade && \
+    apt-get -y install pip && \
+    apt-get -y install python3-venv
+
+COPY src/ ./src/
+RUN bash -c "source /opt/ros/$ROS_DISTRO/setup.bash && \
+             rosdep update && \
+             rosdep install --from-paths src -yi && \
+             rm -rf /var/lib/apt/lists/* src/"
 
 ENV VENV_PATH=/opt/venv
 RUN python3 -m venv $VENV_PATH

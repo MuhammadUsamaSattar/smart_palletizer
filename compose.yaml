@@ -11,6 +11,5 @@ services:
     volumes:
       - ./data/smart_palletizing_data_ros2/:/smart_palletizer/data/smart_palletizing_data_ros2/
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-    network_mode: "host"
     tty: true
     privileged: true

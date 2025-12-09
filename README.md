@@ -9,6 +9,21 @@ This repository applies computer vision algorithms to a ROS2 bag data-stream to 
 
 ## Instructions
 
+### Installation
+
+#### Docker (Recommended)
+Docker is the recommended way to run this project. It ensures no issues related to the environment. You need to install [Docker](https://docs.docker.com/desktop/) on your PC. You can also follow these [instructions](https://docs.docker.com/engine/install/linux-postinstall/) post-install to avoid prefixing each docker command with `sudo`.
+
+Clone this repository and put the unzipped [ROS2 compatible bag folder](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) in `data/`. Make sure to give access to your local display to run `rviz2`. On Linux, you can run:
+```
+xhost +local:root
+```
+In the root of the project:
+```
+docker compose run --rm smart_palletizer
+```
+
+#### Local PC
 The project has been developed using Ubuntu 24.04 with ROS2 Kilted. It is recommended to use these versions as other combinations have not been tested. Make sure that you completely and accurately follow the [ROS2 Kileted install instructions](https://docs.ros.org/en/kilted/Installation/Ubuntu-Install-Debs.html). Make sure that you have `python` and `pip` installed.
 
 Clone this repository and make sure you have sourced the ROS2 installation:
@@ -35,6 +50,7 @@ source install/setup.bash
 
 A [ROS2 compatible bag](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) file must be downloaded and extracted.
 
+### Running
 There are four convenient launch files that you can use to test and visualize the different features of the project.
 
 - To see the results of post processing the point cloud:
