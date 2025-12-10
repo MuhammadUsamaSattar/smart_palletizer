@@ -14,10 +14,9 @@ This repository applies computer vision algorithms to a ROS2 bag data-stream to 
 #### Docker (Recommended)
 Docker is the recommended way to run this project. It ensures no issues related to the environment. You need to install [Docker](https://docs.docker.com/desktop/) on your PC. You can also follow these [instructions](https://docs.docker.com/engine/install/linux-postinstall/) post-install to avoid prefixing each docker command with `sudo`.
 
-Clone this repository and put the unzipped [ROS2 compatible bag folder](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) in `data/`. Make sure to give access to your local display to run `rviz2`. On Linux, you can run:
-```
-xhost +local:root
-```
+Install ROS2 Kilted on your local setup to view the output in rviz2. Make sure that you completely and accurately follow the [ROS2 Kileted install instructions](https://docs.ros.org/en/kilted/Installation/Ubuntu-Install-Debs.html).
+
+Clone this repository and put the unzipped [ROS2 compatible bag folder](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) in `data/`. Make sure to give access to your local display to run `rviz2`.
 In the root of the project:
 ```
 docker compose run --rm smart_palletizer
@@ -51,21 +50,28 @@ source install/setup.bash
 A [ROS2 compatible bag](https://drive.google.com/file/d/1kPUg90kEzcZHuLLqfFAULbLmw7cl4sGu/view?usp=sharing) file must be downloaded and extracted.
 
 ### Running
-There are four convenient launch files that you can use to test and visualize the different features of the project.
+There are four convenient launch files that you can use to test and visualize the different features of the project. 
+> If you are running in docker then add the option `main_node:=false` to prevent rviz2 from starting. At the root of the repository on your local PC, you can then run:
+>```
+> rviz2 -d src/smart_palletizer/rviz2/post_processing.rviz
+> rviz2 -d src/smart_palletizer/rviz2/box_detection.rviz
+> rviz2 -d src/smart_palletizer/rviz2/pose_detection.rviz
+> rviz2 -d src/smart_palletizer/rviz2/box_spawn.rviz
+> ```
 
-- To see the results of post processing the point cloud:
+- To run post processing node:
     ```
     ros2 launch smart_palletizer_py post_processing.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
     ```
-- To see the results of box detection:
+- To run box detection node:
     ```
     ros2 launch smart_palletizer_py box_detection.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
     ```
-- To see the results of pose detection:
+- To run pose detection node:
     ```
     ros2 launch smart_palletizer_py pose_detection.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
     ```
-- To see the spawned boxes according to detected poses:
+- To run box spawn node:
     ```
     ros2 launch smart_palletizer_py box_spawn.launch.py bag_path:=path/to/bag/folder/smart_palletizing_data_ros2/
     ```

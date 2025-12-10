@@ -16,6 +16,7 @@ from pbr.version import VersionInfo
 import sys
 import os
 
+autodoc_mock_imports = ["setup"]
 sys.path.insert(0, os.path.abspath('../../src/smart_palletizer_py'))
 ## Version
 _v = VersionInfo('neurapy_ai_utils').semantic_version()

@@ -238,7 +238,7 @@ class BoxDetection(Node):
         )[0]
 
     def getBoxes(self, img_depth: np.ndarray, contours: List[List[List[int]]]) -> None:
-        """Get the boudning box, box contour and box information from contours.
+        """Get the bounding box, box contour and box information from contours.
 
         Args:
             img_depth (np.ndarray): Depth image.
@@ -256,7 +256,7 @@ class BoxDetection(Node):
             box_contour = cv2.boxPoints(cv2.minAreaRect(cnt))
             box_contour = np.int0(box_contour)
 
-            # Get real-world co-ordinates of three ponts of the box contour and find the two side lengths
+            # Get real-world coordinates of three ponts of the box contour and find the two side lengths
             p1 = utils.get_XYZ_from_Pixels(
                 self.camera, box_contour[0][0], box_contour[0][1], depth
             )
@@ -338,7 +338,7 @@ class BoxDetection(Node):
             img (np.ndarray): Image on which to draw.
             detected_boxes (Tuple[List[int], List[int], Tuple[int, int, Tuple[int, int], int, str]]):
             Box information in the format [Bounding Box, Box Contour, Box Information].
-            alpha (float, optional): Bleding parameter. Higher value of alpha leads to stronger
+            alpha (float, optional): Blending parameter. Higher value of alpha leads to stronger
             contour fill color. Defaults to 0.2.
 
         Returns:

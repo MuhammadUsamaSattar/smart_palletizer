@@ -230,7 +230,7 @@ def subsample(img: np.ndarray, factor: int = 2, method: str = "auto") -> np.ndar
 
 
 def get_mask(type: str, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
-    """Gets a sub-array mask dpending on type around (dx, dy) pixel.
+    """Gets a sub-array mask depending on type around (dx, dy) pixel.
 
     Args:
         type (str): Type of mask. Str consists of 2 or 3 parts Direction-Dimension-[Inclusion].
@@ -290,7 +290,7 @@ def holePatching(
                     - Dimension: 1D, 2D
                     - Inclusion: Incl (Include pixels perpendicular to direction beside central pixel),
                     Excl (Exclude pixels perpendicular to direction beside central pixel)
-        max_iter (int, optional): Maximum number of iterations to run hole patchng. Iterations are needed
+        max_iter (int, optional): Maximum number of iterations to run hole patching. Iterations are needed
         to patch holes in thick regions. Defaults to 10.
 
     Raises:

@@ -26,7 +26,7 @@ class PoseDetection(Node):
         self.detected_boxes_subscription_ = self.create_subscription(
             DetectedBoxes, "/detected_boxes", self.add_detected_boxes, 10
         )
-        # Subscription for filtered rgb image
+        # Subscription for filtered RGB image
         self.camera_info_subscription_ = self.create_subscription(
             CameraInfo, "/camera_filtered/color/camera_info", self.add_camera_info, 10
         )
@@ -73,7 +73,7 @@ class PoseDetection(Node):
             box_tf.child_frame_id = detected_box.id
             number_boxes += 1
 
-            # Get real world co-ordinates of point
+            # Get real world coordinates of point
             x, y, z = utils.get_XYZ_from_Pixels(
                 self.camera, detected_box.x, detected_box.y, detected_box.depth
             )

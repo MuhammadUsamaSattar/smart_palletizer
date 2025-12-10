@@ -13,17 +13,17 @@ MEDIUM_BOX_DIMS = BOX_DIMS(x=0.340, y=0.250, z=0.095)
 def time_filter(
     img: np.ndarray, prev_filtered_img: np.ndarray, alpha: float = 0.5, delta: int = 20
 ) -> np.ndarray:
-    """Apply a time filter on the given imag using EMA.
+    """Apply a time filter on the given image using EMA.
 
     Args:
         img (np.ndarray): Current image.
         prev_filtered_img (np.ndarray): Image from last frame with EMA applied.
-        alpha (float, optional): Weightage of img. Defaults to 0.5.
+        alpha (float, optional): Weight of current image. Defaults to 0.5.
         delta (int, optional): Difference between pixel values above which EMA is not applied.
         Defaults to 20.
 
     Returns:
-        np.ndarray: Output image with EMA applied.
+        np.ndarray: Output image with the EMA applied.
     """
     # Check if prev_filtered_img is valid
     if not isinstance(prev_filtered_img, np.ndarray):
@@ -84,16 +84,16 @@ def quaternion_from_euler(
 def get_XYZ_from_Pixels(
     camera: PinholeCameraModel, u: int | float, v: int | float, d: int | float
 ) -> Tuple[float, float, float]:
-    """_summary_
+    """Get real world XYZ coordinates from pixel coordinates and depth value.
 
     Args:
-        camera (PinholeCameraModel): Camera model intialized with camera info.
-        u (int | float): x-axis co-ordinate.
-        v (int | float): y-axis co-ordinate.
-        d (int | float): Depth co-ordinate.
+        camera (PinholeCameraModel): Camera model initialized with camera info.
+        u (int | float): x-axis coordinate.
+        v (int | float): y-axis coordinate.
+        d (int | float): Depth coordinate.
 
     Returns:
-        Tuple[float, float, float]: Tuple contained a unit vector pointing from camera frame to pixel (u, v).
+        Tuple[float, float, float]: Tuple containing a unit vector pointing from camera frame to pixel (u, v).
     """
     # Get unit vector
     X, Y, Z = camera.project_pixel_to_3d_ray((u, v))

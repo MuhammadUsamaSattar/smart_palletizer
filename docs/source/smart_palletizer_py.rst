@@ -12,6 +12,14 @@ smart\_palletizer\_py.box\_detection module
    :show-inheritance:
    :undoc-members:
 
+smart\_palletizer\_py.box\_spawn module
+---------------------------------------
+
+.. automodule:: smart_palletizer_py.box_spawn
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 smart\_palletizer\_py.pose\_detection module
 --------------------------------------------
 
