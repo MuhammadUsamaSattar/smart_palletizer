@@ -74,7 +74,7 @@ def generate_launch_description():
                     "30",
                     LaunchConfiguration("bag_path"),
                 ],
-                output="screen",
+                output="log",
             ),
             # Run post processing node
             Node(

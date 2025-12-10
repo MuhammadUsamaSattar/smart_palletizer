@@ -1,0 +1,11 @@
+services:
+  smart_palletizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smart_palletizer
+    environment:
+      ROS_DOMAIN_ID: 0
+    volumes:
+      - ./data/smart_palletizing_data_ros2/:/smart_palletizer/data/smart_palletizing_data_ros2/
+    tty: true

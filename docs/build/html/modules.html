@@ -1,19 +1,22 @@
+
+
 <!DOCTYPE html>
-<html class="writer-html5" lang="en" >
+<html class="writer-html5" lang="en" data-content_root="./">
 <head>
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>smart_palletizer_py &mdash; neurapy_ai_utils 0.0.1 documentation</title>
-      <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
-      <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
-  <!--[if lt IE 9]>
-    <script src="_static/js/html5shiv.min.js"></script>
-  <![endif]-->
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=19f00094" />
+
   
-        <script src="_static/documentation_options.js?v=b3ba4146"></script>
-        <script src="_static/doctools.js?v=888ff710"></script>
-        <script src="_static/sphinx_highlight.js?v=4825356b"></script>
+    <link rel="shortcut icon" href="_static/neura_logo.svg"/>
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=b3ba4146"></script>
+      <script src="_static/doctools.js?v=888ff710"></script>
+      <script src="_static/sphinx_highlight.js?v=4825356b"></script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
@@ -26,14 +29,16 @@
     <nav data-toggle="wy-nav-shift" class="wy-nav-side">
       <div class="wy-side-scroll">
         <div class="wy-side-nav-search" >
-            <a href="index.html" class="icon icon-home"> neurapy_ai_utils
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            neurapy_ai_utils
+              <img src="_static/logo.jpg" class="logo" alt="Logo"/>
           </a>
-              <div class="version">
-                0.0.1
-              </div>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" />
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
   </form>
@@ -60,7 +65,7 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="index.html" class="icon icon-home"></a></li>
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
       <li class="breadcrumb-item active">smart_palletizer_py</li>
       <li class="wy-breadcrumbs-aside">
       </li>
@@ -77,14 +82,65 @@
 <li class="toctree-l1"><a class="reference internal" href="setup.html">setup module</a></li>
 <li class="toctree-l1"><a class="reference internal" href="smart_palletizer_py.html">smart_palletizer_py package</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#submodules">Submodules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#smart-palletizer-py-box-detection-module">smart_palletizer_py.box_detection module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#smart-palletizer-py-pose-detection-module">smart_palletizer_py.pose_detection module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#smart-palletizer-py-post-processing-module">smart_palletizer_py.post_processing module</a></li>
-<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.test">smart_palletizer_py.test module</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.test.foo"><code class="docutils literal notranslate"><span class="pre">foo()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.box_detection">smart_palletizer_py.box_detection module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection"><code class="docutils literal notranslate"><span class="pre">BoxDetection</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_camera_info"><code class="docutils literal notranslate"><span class="pre">BoxDetection.add_camera_info()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_img_depth"><code class="docutils literal notranslate"><span class="pre">BoxDetection.add_img_depth()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_img_rgb"><code class="docutils literal notranslate"><span class="pre">BoxDetection.add_img_rgb()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.detect_boxes"><code class="docutils literal notranslate"><span class="pre">BoxDetection.detect_boxes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.drawBoxes"><code class="docutils literal notranslate"><span class="pre">BoxDetection.drawBoxes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.findContours"><code class="docutils literal notranslate"><span class="pre">BoxDetection.findContours()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.getBoxes"><code class="docutils literal notranslate"><span class="pre">BoxDetection.getBoxes()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#smart-palletizer-py-utils-module">smart_palletizer_py.utils module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_detection.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.box_spawn">smart_palletizer_py.box_spawn module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_spawn.BoxSpawn"><code class="docutils literal notranslate"><span class="pre">BoxSpawn</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_spawn.BoxSpawn.spawn_boxes"><code class="docutils literal notranslate"><span class="pre">BoxSpawn.spawn_boxes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.box_spawn.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.pose_detection">smart_palletizer_py.pose_detection module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.pose_detection.PoseDetection"><code class="docutils literal notranslate"><span class="pre">PoseDetection</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.pose_detection.PoseDetection.add_camera_info"><code class="docutils literal notranslate"><span class="pre">PoseDetection.add_camera_info()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.pose_detection.PoseDetection.add_detected_boxes"><code class="docutils literal notranslate"><span class="pre">PoseDetection.add_detected_boxes()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.pose_detection.PoseDetection.detect_pose"><code class="docutils literal notranslate"><span class="pre">PoseDetection.detect_pose()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.pose_detection.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.post_processing">smart_palletizer_py.post_processing module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing"><code class="docutils literal notranslate"><span class="pre">PostProcessing</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_camera_info"><code class="docutils literal notranslate"><span class="pre">PostProcessing.add_camera_info()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_img_depth"><code class="docutils literal notranslate"><span class="pre">PostProcessing.add_img_depth()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_img_rgb"><code class="docutils literal notranslate"><span class="pre">PostProcessing.add_img_rgb()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.process_imgs"><code class="docutils literal notranslate"><span class="pre">PostProcessing.process_imgs()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.get_mask"><code class="docutils literal notranslate"><span class="pre">get_mask()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.holePatching"><code class="docutils literal notranslate"><span class="pre">holePatching()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.post_processing.subsample"><code class="docutils literal notranslate"><span class="pre">subsample()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.test">smart_palletizer_py.test module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py.utils">smart_palletizer_py.utils module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.BOX_DIMS"><code class="docutils literal notranslate"><span class="pre">BOX_DIMS</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.BOX_DIMS.x"><code class="docutils literal notranslate"><span class="pre">BOX_DIMS.x</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.BOX_DIMS.y"><code class="docutils literal notranslate"><span class="pre">BOX_DIMS.y</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.BOX_DIMS.z"><code class="docutils literal notranslate"><span class="pre">BOX_DIMS.z</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.get_XYZ_from_Pixels"><code class="docutils literal notranslate"><span class="pre">get_XYZ_from_Pixels()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.quaternion_from_euler"><code class="docutils literal notranslate"><span class="pre">quaternion_from_euler()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="smart_palletizer_py.html#smart_palletizer_py.utils.time_filter"><code class="docutils literal notranslate"><span class="pre">time_filter()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="smart_palletizer_py.html#module-smart_palletizer_py">Module contents</a></li>
 </ul>
 </li>

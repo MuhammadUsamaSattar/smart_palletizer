@@ -1,0 +1,502 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>smart_palletizer_py.post_processing &mdash; neurapy_ai_utils 0.0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+    <link rel="shortcut icon" href="../../_static/neura_logo.svg"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=b3ba4146"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=4825356b"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            neurapy_ai_utils
+              <img src="../../_static/logo.jpg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">smart_palletizer_py</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">neurapy_ai_utils</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">smart_palletizer_py.post_processing</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for smart_palletizer_py.post_processing</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">copy</span><span class="w"> </span><span class="kn">import</span> <span class="n">deepcopy</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">cv2</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">cv_bridge</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">rclpy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy.node</span><span class="w"> </span><span class="kn">import</span> <span class="n">Node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rcl_interfaces.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">ParameterDescriptor</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sensor_msgs.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span><span class="p">,</span> <span class="n">CameraInfo</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">smart_palletizer_py</span><span class="w"> </span><span class="kn">import</span> <span class="n">utils</span>
+
+
+<div class="viewcode-block" id="PostProcessing">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">PostProcessing</span><span class="p">(</span><span class="n">Node</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove noise and holes from depth and rgb images.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;post_processing&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera_info</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_img_depth</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Declare parameter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">declare_parameter</span><span class="p">(</span>
+            <span class="s2">&quot;downscaling_factor&quot;</span><span class="p">,</span>
+            <span class="mi">2</span><span class="p">,</span>
+            <span class="n">ParameterDescriptor</span><span class="p">(</span>
+                <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Factor by which to downsacle the rgb and depth image&quot;</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Publisher for processed depth image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_depth_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span>
+            <span class="s2">&quot;aligned_depth_to_color/image_filtered&quot;</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Publisher for processed rgb image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_rgb_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span>
+            <span class="s2">&quot;color/image_filtered&quot;</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Publisher for processed depth image&#39;s camera info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_depth_camera_info_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">CameraInfo</span><span class="p">,</span>
+            <span class="s2">&quot;aligned_depth_to_color/camera_info&quot;</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Publisher for processed rgb image&#39;s camera info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_rgb_camera_info_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">CameraInfo</span><span class="p">,</span>
+            <span class="s2">&quot;color/camera_info&quot;</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Subscriber for raw depth image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth_subscriber_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span>
+            <span class="s2">&quot;/camera/aligned_depth_to_color/image_raw&quot;</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_img_depth</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Subscriber for raw rgb image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb_subscriber_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span>
+            <span class="s2">&quot;/camera/color/image_raw&quot;</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_img_rgb</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Subscriber for raw camera info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera_info_subscriber_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">CameraInfo</span><span class="p">,</span>
+            <span class="s2">&quot;/camera/color/camera_info&quot;</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_camera_info</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_timer</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="mi">30</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">process_imgs</span><span class="p">)</span>
+
+<div class="viewcode-block" id="PostProcessing.add_img_depth">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_img_depth">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_img_depth</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add depth image to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (Image): Image message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="o">=</span> <span class="n">msg</span></div>
+
+
+<div class="viewcode-block" id="PostProcessing.add_img_rgb">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_img_rgb">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_img_rgb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add rgb image to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (Image): Image message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="o">=</span> <span class="n">msg</span></div>
+
+
+<div class="viewcode-block" id="PostProcessing.add_camera_info">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.add_camera_info">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_camera_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">CameraInfo</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add camera info to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (CameraInfo): CameraInfo message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera_info</span> <span class="o">=</span> <span class="n">msg</span></div>
+
+
+<div class="viewcode-block" id="PostProcessing.process_imgs">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.PostProcessing.process_imgs">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">process_imgs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Process images by applying downscaling, hole patching, median blur and EMA time filter.&quot;&quot;&quot;</span>
+        <span class="c1"># If class attributes have no value, then skip</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">camera_info</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">header</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span><span class="o">.</span><span class="n">header</span>
+        <span class="c1"># Convert image message to OpenCV image</span>
+        <span class="n">bridge</span> <span class="o">=</span> <span class="n">cv_bridge</span><span class="o">.</span><span class="n">CvBridge</span><span class="p">()</span>
+        <span class="n">img_depth</span> <span class="o">=</span> <span class="n">bridge</span><span class="o">.</span><span class="n">imgmsg_to_cv2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span><span class="p">,</span> <span class="s2">&quot;16UC1&quot;</span><span class="p">)</span>
+        <span class="n">img_rgb</span> <span class="o">=</span> <span class="n">bridge</span><span class="o">.</span><span class="n">imgmsg_to_cv2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span><span class="p">,</span> <span class="s2">&quot;rgb8&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Downscale depth and rgb images</span>
+        <span class="n">down_scaling_factor</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">get_parameter</span><span class="p">(</span><span class="s2">&quot;downscaling_factor&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">get_parameter_value</span><span class="p">()</span><span class="o">.</span><span class="n">integer_value</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">down_scaling_factor</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">img_depth</span> <span class="o">=</span> <span class="n">subsample</span><span class="p">(</span><span class="n">img_depth</span><span class="p">,</span> <span class="n">factor</span><span class="o">=</span><span class="n">down_scaling_factor</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+            <span class="n">img_rgb</span> <span class="o">=</span> <span class="n">subsample</span><span class="p">(</span><span class="n">img_rgb</span><span class="p">,</span> <span class="n">factor</span><span class="o">=</span><span class="n">down_scaling_factor</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Remove holes in depth image</span>
+        <span class="n">img_depth</span> <span class="o">=</span> <span class="n">holePatching</span><span class="p">(</span><span class="n">img_depth</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;max&quot;</span><span class="p">,</span> <span class="s2">&quot;L-2D-Excl&quot;</span><span class="p">,</span> <span class="n">max_iter</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+
+        <span class="c1"># Denoise depth image through median blur</span>
+        <span class="n">img_depth</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">medianBlur</span><span class="p">(</span><span class="n">img_depth</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+        <span class="c1"># Denoise depth image through time filter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_img_depth</span> <span class="o">=</span> <span class="n">img_depth</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">time_filter</span><span class="p">(</span>
+            <span class="n">img_depth</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">prev_img_depth</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="p">(</span><span class="mi">5</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">2</span><span class="o">**</span><span class="mi">8</span><span class="p">)</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="c1"># Construct messages for filtered rgb image, depth image and camera info</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="n">bridge</span><span class="o">.</span><span class="n">cv2_to_imgmsg</span><span class="p">(</span><span class="n">img_depth</span><span class="p">,</span> <span class="s2">&quot;16UC1&quot;</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_depth_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+        <span class="n">msg</span> <span class="o">=</span> <span class="n">bridge</span><span class="o">.</span><span class="n">cv2_to_imgmsg</span><span class="p">(</span><span class="n">img_rgb</span><span class="p">,</span> <span class="s2">&quot;rgb8&quot;</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_rgb_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+        <span class="n">camera_info_msg</span> <span class="o">=</span> <span class="n">deepcopy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">camera_info</span><span class="p">)</span>
+        <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">header</span> <span class="o">=</span> <span class="n">header</span>
+        <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">height</span> <span class="o">=</span> <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">height</span> <span class="o">//</span> <span class="n">down_scaling_factor</span>
+        <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">width</span> <span class="o">=</span> <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">width</span> <span class="o">//</span> <span class="n">down_scaling_factor</span>
+        <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">k</span> <span class="o">=</span> <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">k</span> <span class="o">/</span> <span class="n">down_scaling_factor</span>
+        <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">p</span> <span class="o">=</span> <span class="n">camera_info_msg</span><span class="o">.</span><span class="n">p</span> <span class="o">/</span> <span class="n">down_scaling_factor</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_depth_camera_info_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">camera_info_msg</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filtered_rgb_camera_info_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">camera_info_msg</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="subsample">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.subsample">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">subsample</span><span class="p">(</span><span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;auto&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sub-sample an image (depth map or RGB) intelligently using non-zero median or mean.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        img (np.ndarray): 2D (depth) or 3D (H,W,C) image. np.uint16 for depth. np.uint8 for RGB.</span>
+<span class="sd">        factor (int, optional): Sub-sampling factor. Defaults to 2.</span>
+<span class="sd">        method (str, optional): &#39;auto&#39; chooses median for small factor (&lt;4) and mean for larger factors.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Raise error if method is neither &#39;median&#39; nor &#39;mean&#39;. Raise error if image is neither</span>
+<span class="sd">        2D nor 3D.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        np.ndarray: Sub-sampled image of the same dtype as input.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Input must be either 2D (depth) or 3D (RGB)</span>
+    <span class="k">assert</span> <span class="n">img</span><span class="o">.</span><span class="n">ndim</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="n">dtype</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">dtype</span>
+
+    <span class="c1"># If method is &#39;auto&#39;, automatically chose method</span>
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;auto&quot;</span><span class="p">:</span>
+        <span class="n">method</span> <span class="o">=</span> <span class="s2">&quot;median&quot;</span> <span class="k">if</span> <span class="n">factor</span> <span class="o">&lt;</span> <span class="mi">4</span> <span class="k">else</span> <span class="s2">&quot;mean&quot;</span>
+
+    <span class="c1"># Make the img 3D array if image is 2D for consistency</span>
+    <span class="k">if</span> <span class="n">img</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">H</span><span class="p">,</span> <span class="n">W</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">C</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">img_reshaped</span> <span class="o">=</span> <span class="n">img</span><span class="p">[:,</span> <span class="p">:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">,</span> <span class="n">C</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">img_reshaped</span> <span class="o">=</span> <span class="n">img</span>
+
+    <span class="n">new_H</span> <span class="o">=</span> <span class="p">(</span><span class="n">H</span> <span class="o">+</span> <span class="n">factor</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">factor</span>
+    <span class="n">new_W</span> <span class="o">=</span> <span class="p">(</span><span class="n">W</span> <span class="o">+</span> <span class="n">factor</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">factor</span>
+
+    <span class="c1"># Pad to make divisible by factor</span>
+    <span class="n">pad_H</span> <span class="o">=</span> <span class="n">new_H</span> <span class="o">*</span> <span class="n">factor</span> <span class="o">-</span> <span class="n">H</span>
+    <span class="n">pad_W</span> <span class="o">=</span> <span class="n">new_W</span> <span class="o">*</span> <span class="n">factor</span> <span class="o">-</span> <span class="n">W</span>
+    <span class="n">padded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span>
+        <span class="n">img_reshaped</span><span class="p">,</span>
+        <span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="n">pad_H</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">pad_W</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)),</span>
+        <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;constant&quot;</span><span class="p">,</span>
+        <span class="n">constant_values</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Reshape into blocks</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">padded</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">new_H</span><span class="p">,</span> <span class="n">factor</span><span class="p">,</span> <span class="n">new_W</span><span class="p">,</span> <span class="n">factor</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+    <span class="n">blocks_flat</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">new_H</span><span class="p">,</span> <span class="n">new_W</span><span class="p">,</span> <span class="n">factor</span> <span class="o">*</span> <span class="n">factor</span><span class="p">,</span> <span class="n">C</span><span class="p">)</span>
+
+    <span class="n">valid</span> <span class="o">=</span> <span class="n">blocks_flat</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">if</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;median&quot;</span><span class="p">:</span>
+        <span class="c1"># Apply median filter on subarray</span>
+        <span class="n">blocks_float</span> <span class="o">=</span> <span class="n">blocks_flat</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">blocks_masked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">blocks_float</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+        <span class="n">subsampled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmedian</span><span class="p">(</span><span class="n">blocks_masked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">subsampled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">subsampled</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">method</span> <span class="o">==</span> <span class="s2">&quot;mean&quot;</span><span class="p">:</span>
+        <span class="c1"># Apply mean filter on subarray</span>
+        <span class="n">sums</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">blocks_flat</span> <span class="o">*</span> <span class="n">valid</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">counts</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span>
+        <span class="n">subsampled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">divide</span><span class="p">(</span>
+            <span class="n">sums</span><span class="p">,</span> <span class="n">counts</span><span class="p">,</span> <span class="n">out</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">sums</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">where</span><span class="o">=</span><span class="n">counts</span> <span class="o">&gt;</span> <span class="mi">0</span>
+        <span class="p">)</span>
+        <span class="n">subsampled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">subsampled</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Method must be &#39;median&#39;, &#39;mean&#39;, or &#39;auto&#39;&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Convert to 2D if orignal image was 2D</span>
+    <span class="k">if</span> <span class="n">img</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">subsampled</span> <span class="o">=</span> <span class="n">subsampled</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">subsampled</span></div>
+
+
+
+<div class="viewcode-block" id="get_mask">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.get_mask">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_mask</span><span class="p">(</span><span class="nb">type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">dy</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">dx</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Gets a sub-array mask depending on type around (dx, dy) pixel.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        type (str): Type of mask. Str consists of 2 or 3 parts Direction-Dimension-[Inclusion].</span>
+<span class="sd">                    - Direction: U (Up), D (Down), L (Left), R (Right)</span>
+<span class="sd">                    - Dimension: 1D, 2D</span>
+<span class="sd">                    - Inclusion: Incl (Include pixels perpendicular to direction beside central pixel),</span>
+<span class="sd">                    Excl (Exclude pixels perpendicular to direction beside central pixel)</span>
+<span class="sd">        dy (np.ndarray): x-coordinate of pixel.</span>
+<span class="sd">        dx (np.ndarray): y-coordinate of pixel.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Raise error if type is invalid.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        np.ndarray: Output mask.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;U-1D&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dy</span> <span class="o">&lt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;D-1D&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dy</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;L-1D&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dx</span> <span class="o">&lt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;R-1D&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dx</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;U-2D-Excl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">dy</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dx</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dy</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;D-2D-Excl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">dy</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dx</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dy</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;L-2D-Excl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">dx</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dy</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dx</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;R-2D-Excl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">dx</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dy</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">dx</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;U-2D-Incl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dy</span> <span class="o">&lt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;D-2D-Incl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dy</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;L-2D-Incl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dx</span> <span class="o">&lt;</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s2">&quot;R-2D-Incl&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">dx</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown type: </span><span class="si">{</span><span class="nb">type</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="holePatching">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.holePatching">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">holePatching</span><span class="p">(</span>
+    <span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">max_iter</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Efficient iterative hole-filling for image using directional masks.</span>
+<span class="sd">    Median, min, or max are applied only to non-zero neighbors.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        img (np.ndarray): Image to hole patch. Must be np.uint16.</span>
+<span class="sd">        size (int): Odd integer window size within which hole patching is done.</span>
+<span class="sd">        mode (str): Mode of hole patching algorithm. Options are &#39;median&#39;, &#39;min&#39; or &#39;max&#39;.</span>
+<span class="sd">        type (str): Type of mask. Str consists of 2 or 3 parts Direction-Dimension-[Inclusion].</span>
+<span class="sd">                    - Direction: U (Up), D (Down), L (Left), R (Right)</span>
+<span class="sd">                    - Dimension: 1D, 2D</span>
+<span class="sd">                    - Inclusion: Incl (Include pixels perpendicular to direction beside central pixel),</span>
+<span class="sd">                    Excl (Exclude pixels perpendicular to direction beside central pixel)</span>
+<span class="sd">        max_iter (int, optional): Maximum number of iterations to run hole patching. Iterations are needed</span>
+<span class="sd">        to patch holes in thick regions. Defaults to 10.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        ValueError: Raise error if mode is not &#39;median&#39;, &#39;max&#39; or &#39;min&#39;. Raise error if image is not np.uint16 or size is not odd.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        np.ndarray: Hole patched image.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="n">img</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">,</span> <span class="s2">&quot;Input must be np.uint16&quot;</span>
+    <span class="k">assert</span> <span class="n">size</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Size must be odd&quot;</span>
+
+    <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">shape</span>
+    <span class="n">pad</span> <span class="o">=</span> <span class="n">size</span> <span class="o">//</span> <span class="mi">2</span>
+    <span class="n">patched</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="c1"># Prepare offset grid</span>
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="o">-</span><span class="n">pad</span><span class="p">,</span> <span class="n">pad</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">dy</span><span class="p">,</span> <span class="n">dx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">meshgrid</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">idx</span><span class="p">,</span> <span class="n">indexing</span><span class="o">=</span><span class="s2">&quot;ij&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Compute only the needed mask</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">get_mask</span><span class="p">(</span><span class="nb">type</span><span class="p">,</span> <span class="n">dy</span><span class="p">,</span> <span class="n">dx</span><span class="p">)</span>
+    <span class="n">dy_offsets</span> <span class="o">=</span> <span class="n">dy</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
+    <span class="n">dx_offsets</span> <span class="o">=</span> <span class="n">dx</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span>
+
+    <span class="c1"># Run hole patching algorithm iteratively fill in hole regions.</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iter</span><span class="p">):</span>
+        <span class="n">zeros</span> <span class="o">=</span> <span class="n">patched</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">zeros</span><span class="p">):</span>
+            <span class="k">break</span>
+
+        <span class="c1"># Pad the image</span>
+        <span class="n">padded</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">patched</span><span class="p">,</span> <span class="n">pad_width</span><span class="o">=</span><span class="n">pad</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;edge&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Extract neighbours</span>
+        <span class="n">neighbors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">padded</span><span class="p">[</span><span class="n">pad</span> <span class="o">+</span> <span class="n">dy_i</span> <span class="p">:</span> <span class="n">h</span> <span class="o">+</span> <span class="n">pad</span> <span class="o">+</span> <span class="n">dy_i</span><span class="p">,</span> <span class="n">pad</span> <span class="o">+</span> <span class="n">dx_i</span> <span class="p">:</span> <span class="n">w</span> <span class="o">+</span> <span class="n">pad</span> <span class="o">+</span> <span class="n">dx_i</span><span class="p">]</span>
+                <span class="k">for</span> <span class="n">dy_i</span><span class="p">,</span> <span class="n">dx_i</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">dy_offsets</span><span class="p">,</span> <span class="n">dx_offsets</span><span class="p">)</span>
+            <span class="p">],</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Only consider non-zero neighbors</span>
+        <span class="n">valid</span> <span class="o">=</span> <span class="n">neighbors</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+        <span class="c1"># Take the &#39;median&#39;, &#39;min&#39; or &#39;max&#39; of the region</span>
+        <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;median&quot;</span><span class="p">:</span>
+            <span class="n">neighbors_masked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+            <span class="n">newvals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmedian</span><span class="p">(</span><span class="n">neighbors_masked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">newvals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">newvals</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;min&quot;</span><span class="p">:</span>
+            <span class="n">neighbors_masked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">iinfo</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">)</span>
+            <span class="n">newvals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">neighbors_masked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">newvals</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="o">~</span><span class="n">valid</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)]</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">elif</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span>
+            <span class="n">neighbors_masked</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">neighbors</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">newvals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">neighbors_masked</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Invalid mode. Use &#39;median&#39;, &#39;min&#39;, or &#39;max&#39;.&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Fill only zero pixels with at least one valid neighbor</span>
+        <span class="n">fill_mask</span> <span class="o">=</span> <span class="n">zeros</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">fill_mask</span><span class="p">):</span>
+            <span class="k">break</span>
+
+        <span class="n">patched</span><span class="p">[</span><span class="n">fill_mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">newvals</span><span class="p">[</span><span class="n">fill_mask</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">patched</span></div>
+
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.post_processing.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">node</span> <span class="o">=</span> <span class="n">PostProcessing</span><span class="p">()</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">spin</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">destroy_node</span><span class="p">()</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Neura Robotics GmbH.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

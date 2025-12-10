@@ -14,7 +14,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Point2D.msg"
   "msg/DetectedBox.msg"
   "msg/DetectedBoxes.msg"
-  DEPENDENCIES std_msgs
+  "msg/BoxInfo.msg"
+  "msg/BoxInfoArray.msg"
+  DEPENDENCIES std_msgs geometry_msgs
 )
 
 if(BUILD_TESTING)

@@ -1,0 +1,522 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>smart_palletizer_py.box_detection &mdash; neurapy_ai_utils 0.0.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+    <link rel="shortcut icon" href="../../_static/neura_logo.svg"/>
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=b3ba4146"></script>
+      <script src="../../_static/doctools.js?v=888ff710"></script>
+      <script src="../../_static/sphinx_highlight.js?v=4825356b"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            neurapy_ai_utils
+              <img src="../../_static/logo.jpg" class="logo" alt="Logo"/>
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">smart_palletizer_py</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">neurapy_ai_utils</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">smart_palletizer_py.box_detection</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for smart_palletizer_py.box_detection</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Tuple</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">cv2</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cv_bridge</span><span class="w"> </span><span class="kn">import</span> <span class="n">CvBridge</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">image_geometry</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">rclpy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">rclpy.node</span><span class="w"> </span><span class="kn">import</span> <span class="n">Node</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sensor_msgs.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">Image</span><span class="p">,</span> <span class="n">CameraInfo</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">smart_palletizer_py</span><span class="w"> </span><span class="kn">import</span> <span class="n">utils</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">smart_palletizer_interfaces.msg</span><span class="w"> </span><span class="kn">import</span> <span class="n">DetectedBox</span><span class="p">,</span> <span class="n">DetectedBoxes</span>
+
+
+<div class="viewcode-block" id="BoxDetection">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BoxDetection</span><span class="p">(</span><span class="n">Node</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Detect boxes in image using Canny Edge detection.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="s2">&quot;detection&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span> <span class="o">=</span> <span class="n">CvBridge</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera</span> <span class="o">=</span> <span class="n">image_geometry</span><span class="o">.</span><span class="n">PinholeCameraModel</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;h&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;s&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;v&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;depth&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;n&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;box_infos&quot;</span><span class="p">:</span> <span class="p">{}}</span>
+
+        <span class="c1"># Publisher for image with bounding boxes for detected boxes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">detected_box_img_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span> <span class="s2">&quot;/box_detection_img&quot;</span><span class="p">,</span> <span class="mi">10</span>
+        <span class="p">)</span>
+        <span class="c1"># Publisher for information of detected boxes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes_publisher_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_publisher</span><span class="p">(</span>
+            <span class="n">DetectedBoxes</span><span class="p">,</span> <span class="s2">&quot;/detected_boxes&quot;</span><span class="p">,</span> <span class="mi">10</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Subscription for filtered rgb image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rgb_subscription</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span> <span class="s2">&quot;/camera_filtered/color/image_filtered&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_img_rgb</span><span class="p">,</span> <span class="mi">10</span>
+        <span class="p">)</span>
+        <span class="c1"># Subscription for filtered depth image</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera_info_subscription</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">CameraInfo</span><span class="p">,</span>
+            <span class="s2">&quot;/camera_filtered/aligned_depth_to_color/camera_info&quot;</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_camera_info</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Subscription for filtered camera information</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">depth_subscription</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_subscription</span><span class="p">(</span>
+            <span class="n">Image</span><span class="p">,</span>
+            <span class="s2">&quot;/camera_filtered/aligned_depth_to_color/image_filtered&quot;</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_img_depth</span><span class="p">,</span>
+            <span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">timer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">create_timer</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="mi">30</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">detect_boxes</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BoxDetection.add_img_depth">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_img_depth">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_img_depth</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add depth image to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (Image): Image message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="o">=</span> <span class="n">msg</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.add_img_rgb">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_img_rgb">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_img_rgb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add rgb image to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (Image): Image message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="o">=</span> <span class="n">msg</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.add_camera_info">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.add_camera_info">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_camera_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="n">CameraInfo</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Add camera info to instance attribute.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            msg (CameraInfo): CameraInfo message.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">camera</span><span class="o">.</span><span class="n">from_camera_info</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.detect_boxes">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.detect_boxes">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">detect_boxes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Detect boxes and publish image message with bounding boxes and information of boxes&quot;&quot;&quot;</span>
+        <span class="c1"># If instance attributes have not been assigned then skip</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">camera</span><span class="o">.</span><span class="n">P</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span>
+        <span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="n">header</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span><span class="o">.</span><span class="n">header</span>
+
+        <span class="c1"># Convert ROS2 images to OpenCV</span>
+        <span class="n">img_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">imgmsg_to_cv2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span><span class="p">,</span> <span class="n">desired_encoding</span><span class="o">=</span><span class="s2">&quot;16UC1&quot;</span><span class="p">)</span>
+        <span class="n">img_rgb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">imgmsg_to_cv2</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span><span class="p">,</span> <span class="n">desired_encoding</span><span class="o">=</span><span class="s2">&quot;bgr8&quot;</span><span class="p">)</span>
+
+        <span class="c1">### --- Image pre-processing --- ###</span>
+        <span class="n">img_depth_processed</span> <span class="o">=</span> <span class="n">img_depth</span>
+
+        <span class="c1"># Convert BGR image to HSV and offset the color since our target boxes are close to 0 value.</span>
+        <span class="c1"># Equalize histograms in V space to improve contrast</span>
+        <span class="n">img_rgb_processed</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">cvtColor</span><span class="p">(</span><span class="n">img_rgb</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">COLOR_BGR2HSV</span><span class="p">)</span>
+        <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">100</span> <span class="o">+</span> <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">equalizeHist</span><span class="p">(</span><span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">])</span>
+
+        <span class="c1"># Apply time filtering to each of HSV channel</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;h&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">time_filter</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;h&quot;</span><span class="p">],</span> <span class="mf">0.05</span><span class="p">,</span> <span class="mi">180</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;s&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">time_filter</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">1</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;s&quot;</span><span class="p">],</span> <span class="mf">0.1</span><span class="p">,</span> <span class="mi">50</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">time_filter</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">2</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">prev_filtered_img</span><span class="p">[</span><span class="s2">&quot;v&quot;</span><span class="p">],</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mi">50</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="c1">### --- Combined image pre-processing --- ###</span>
+        <span class="c1"># Create masks from depth to isolate just the region of interest</span>
+        <span class="n">upper_depth_lim</span> <span class="o">=</span> <span class="mi">1775</span>
+        <span class="n">lower_depth_lim</span> <span class="o">=</span> <span class="mi">1500</span>
+        <span class="n">mask1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">img_depth_processed</span><span class="p">)</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">mask1</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">threshold</span><span class="p">(</span>
+            <span class="n">img_depth_processed</span><span class="p">,</span> <span class="n">upper_depth_lim</span><span class="p">,</span> <span class="mi">255</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">THRESH_BINARY_INV</span>
+        <span class="p">)</span>
+        <span class="n">mask1</span> <span class="o">=</span> <span class="n">mask1</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+        <span class="n">mask2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros_like</span><span class="p">(</span><span class="n">img_depth_processed</span><span class="p">)</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">mask2</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">threshold</span><span class="p">(</span>
+            <span class="n">img_depth_processed</span><span class="p">,</span> <span class="n">lower_depth_lim</span><span class="p">,</span> <span class="mi">255</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">THRESH_BINARY</span>
+        <span class="p">)</span>
+        <span class="n">mask2</span> <span class="o">=</span> <span class="n">mask2</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+        <span class="c1"># Rescale depth image, convert to uint8 and append to the uint8 HSV image</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span>
+            <span class="n">img_depth_processed</span><span class="p">,</span> <span class="n">lower_depth_lim</span><span class="p">,</span> <span class="n">upper_depth_lim</span><span class="p">,</span> <span class="n">img_depth_processed</span>
+        <span class="p">)</span>
+        <span class="n">img_depth_processed</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">convertScaleAbs</span><span class="p">(</span>
+            <span class="n">img_depth_processed</span><span class="p">,</span>
+            <span class="n">alpha</span><span class="o">=</span><span class="mf">255.0</span> <span class="o">/</span> <span class="p">(</span><span class="n">upper_depth_lim</span> <span class="o">-</span> <span class="n">lower_depth_lim</span><span class="p">),</span>
+            <span class="n">beta</span><span class="o">=-</span><span class="n">lower_depth_lim</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">img_rgb_processed</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dstack</span><span class="p">((</span><span class="n">img_rgb_processed</span><span class="p">,</span> <span class="n">img_depth_processed</span><span class="p">))</span>
+
+        <span class="c1"># Apply mask to combined image</span>
+        <span class="n">img_rgb_processed</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">bitwise_and</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">,</span> <span class="n">img_rgb_processed</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask1</span>
+        <span class="p">)</span>
+        <span class="n">img_rgb_processed</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">bitwise_and</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">,</span> <span class="n">img_rgb_processed</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask2</span>
+        <span class="p">)</span>
+
+        <span class="c1">### --- Edge detection --- ###</span>
+        <span class="c1"># Isolate depth image</span>
+        <span class="n">img_depth_processed</span> <span class="o">=</span> <span class="n">img_rgb_processed</span><span class="p">[:,</span> <span class="p">:,</span> <span class="mi">3</span><span class="p">]</span>
+
+        <span class="c1"># Run Canny edge detection on combined image to extract boxes that can be identified by both hsv and depth change</span>
+        <span class="n">contours</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">findContours</span><span class="p">(</span>
+            <span class="n">img_rgb_processed</span><span class="p">,</span>
+            <span class="n">canny_range</span><span class="o">=</span><span class="p">(</span><span class="mi">110</span><span class="p">,</span> <span class="mi">110</span><span class="p">),</span>
+            <span class="n">dilation_kernel_size</span><span class="o">=</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="mi">7</span><span class="p">),</span>
+            <span class="n">dilation_iterations</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="c1"># Run Canny edge detection on only depth image to extract boxes that can be identified by only depth change</span>
+        <span class="n">contours_depth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">findContours</span><span class="p">(</span>
+            <span class="n">img_depth_processed</span><span class="p">,</span>
+            <span class="n">canny_range</span><span class="o">=</span><span class="p">(</span><span class="mi">40</span><span class="p">,</span> <span class="mi">40</span><span class="p">),</span>
+            <span class="n">dilation_kernel_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
+            <span class="n">dilation_iterations</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Detects and draws the areas representing the boxes, bounding boxes and labels</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">getBoxes</span><span class="p">(</span><span class="n">img_depth</span><span class="p">,</span> <span class="n">contours_depth</span> <span class="o">+</span> <span class="n">contours</span><span class="p">)</span>
+        <span class="n">img_rgb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">drawBoxes</span><span class="p">(</span><span class="n">img_rgb</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+
+        <span class="c1">### --- Publish messages --- ###</span>
+        <span class="n">detected_boxes_data</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">box_info</span><span class="p">,</span> <span class="n">updated</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;box_infos&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">updated</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">longest_side_coords</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">classification</span> <span class="o">=</span> <span class="n">box_info</span>
+
+            <span class="n">detected_box</span> <span class="o">=</span> <span class="n">DetectedBox</span><span class="p">()</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">y</span><span class="p">)</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="n">k</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">y</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">longest_side_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">depth</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">depth</span><span class="p">)</span>
+            <span class="n">detected_box</span><span class="o">.</span><span class="n">classification</span> <span class="o">=</span> <span class="n">classification</span>
+            <span class="n">detected_boxes_data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">detected_box</span><span class="p">)</span>
+
+        <span class="n">detected_boxes_msg</span> <span class="o">=</span> <span class="n">DetectedBoxes</span><span class="p">()</span>
+        <span class="n">detected_boxes_msg</span><span class="o">.</span><span class="n">header</span> <span class="o">=</span> <span class="n">header</span>
+        <span class="n">detected_boxes_msg</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">detected_boxes_data</span>
+
+        <span class="n">img_msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bridge</span><span class="o">.</span><span class="n">cv2_to_imgmsg</span><span class="p">(</span><span class="n">img_rgb</span><span class="p">,</span> <span class="s2">&quot;passthrough&quot;</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">detected_box_img_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">img_msg</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes_publisher_</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">detected_boxes_msg</span><span class="p">)</span>
+
+        <span class="c1"># Reset images</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_depth</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">img_rgb</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.findContours">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.findContours">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">findContours</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+        <span class="n">canny_range</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">],</span>
+        <span class="n">dilation_kernel_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+        <span class="n">dilation_iterations</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Find contours in image using Canny Edge Detection.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            img (np.ndarray): Image in which contours are detected.</span>
+<span class="sd">            canny_range (Tuple[int  |  float, int  |  float]): Thresholds for Canny in</span>
+<span class="sd">            the format (lower_threshold, upper_threshold).</span>
+<span class="sd">            dilation_kernel_size (int): Kernel size for dilation of contours.</span>
+<span class="sd">            dilation_iterations (int): Number of iterations for dilation of contours.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List[List[List[int, int]]]: List containing contours.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Detect contours</span>
+        <span class="n">img</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">Canny</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">canny_range</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">canny_range</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+        <span class="c1"># Dilate contours to strength edge relations</span>
+        <span class="n">kernel</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">getStructuringElement</span><span class="p">(</span><span class="n">cv2</span><span class="o">.</span><span class="n">MORPH_RECT</span><span class="p">,</span> <span class="n">dilation_kernel_size</span><span class="p">)</span>
+        <span class="n">img</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">morphologyEx</span><span class="p">(</span>
+            <span class="n">img</span><span class="p">,</span> <span class="n">cv2</span><span class="o">.</span><span class="n">MORPH_DILATE</span><span class="p">,</span> <span class="n">kernel</span><span class="p">,</span> <span class="n">iterations</span><span class="o">=</span><span class="n">dilation_iterations</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">cv2</span><span class="o">.</span><span class="n">findContours</span><span class="p">(</span>
+            <span class="n">img</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">cv2</span><span class="o">.</span><span class="n">RETR_TREE</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">cv2</span><span class="o">.</span><span class="n">CHAIN_APPROX_SIMPLE</span>
+        <span class="p">)[</span><span class="mi">0</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.getBoxes">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.getBoxes">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">getBoxes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">img_depth</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">contours</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the bounding box, box contour and box information from contours.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            img_depth (np.ndarray): Depth image.</span>
+<span class="sd">            contours (List[List[List[int, int]]]): List containing contours.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Assign all previous boxes as undetected</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">prev_cnts</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;box_infos&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">prev_cnts</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="k">for</span> <span class="n">cnt</span> <span class="ow">in</span> <span class="n">contours</span><span class="p">:</span>
+            <span class="c1"># Calculate the average depth for each point in the contour</span>
+            <span class="n">depth</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">img_depth</span><span class="p">[</span><span class="n">point</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">point</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span> <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">cnt</span><span class="p">])</span>
+
+            <span class="c1"># Find the box contour</span>
+            <span class="n">box_contour</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">boxPoints</span><span class="p">(</span><span class="n">cv2</span><span class="o">.</span><span class="n">minAreaRect</span><span class="p">(</span><span class="n">cnt</span><span class="p">))</span>
+            <span class="n">box_contour</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">int0</span><span class="p">(</span><span class="n">box_contour</span><span class="p">)</span>
+
+            <span class="c1"># Get real-world coordinates of three ponts of the box contour and find the two side lengths</span>
+            <span class="n">p1</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_XYZ_from_Pixels</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">camera</span><span class="p">,</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">depth</span>
+            <span class="p">)</span>
+            <span class="n">p2</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_XYZ_from_Pixels</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">camera</span><span class="p">,</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">depth</span>
+            <span class="p">)</span>
+            <span class="n">p3</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">get_XYZ_from_Pixels</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">camera</span><span class="p">,</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">depth</span>
+            <span class="p">)</span>
+            <span class="n">l1</span><span class="p">,</span> <span class="n">l2</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">p1</span><span class="p">,</span> <span class="n">p2</span><span class="p">),</span> <span class="n">math</span><span class="o">.</span><span class="n">dist</span><span class="p">(</span><span class="n">p2</span><span class="p">,</span> <span class="n">p3</span><span class="p">)</span>
+
+            <span class="c1"># Assign l1 as the larger of the two sides and l2 as the smaller</span>
+            <span class="k">if</span> <span class="n">l1</span> <span class="o">&gt;=</span> <span class="n">l2</span><span class="p">:</span>
+                <span class="n">longest_side_coords</span> <span class="o">=</span> <span class="p">(</span><span class="n">box_contour</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">l1</span><span class="p">,</span> <span class="n">l2</span> <span class="o">=</span> <span class="n">l2</span><span class="p">,</span> <span class="n">l1</span>
+                <span class="n">longest_side_coords</span> <span class="o">=</span> <span class="p">(</span><span class="n">box_contour</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">box_contour</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+
+            <span class="c1"># Calculate the sum of squared error between the l1 and l2 and second-largest dim of each box</span>
+            <span class="n">errors</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="p">(</span>
+                    <span class="p">(</span><span class="n">l1</span> <span class="o">-</span> <span class="n">utils</span><span class="o">.</span><span class="n">SMALL_BOX_DIMS</span><span class="o">.</span><span class="n">x</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+                    <span class="o">+</span> <span class="p">(</span><span class="n">l2</span> <span class="o">-</span> <span class="n">utils</span><span class="o">.</span><span class="n">SMALL_BOX_DIMS</span><span class="o">.</span><span class="n">y</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+                <span class="p">),</span>
+                <span class="p">(</span>
+                    <span class="p">(</span><span class="n">l1</span> <span class="o">-</span> <span class="n">utils</span><span class="o">.</span><span class="n">MEDIUM_BOX_DIMS</span><span class="o">.</span><span class="n">x</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+                    <span class="o">+</span> <span class="p">(</span><span class="n">l2</span> <span class="o">-</span> <span class="n">utils</span><span class="o">.</span><span class="n">MEDIUM_BOX_DIMS</span><span class="o">.</span><span class="n">y</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+                <span class="p">),</span>
+            <span class="p">]</span>
+
+            <span class="c1"># Assign classification as the box with lower error and assign error[0] as the smaller of the two errors</span>
+            <span class="k">if</span> <span class="n">errors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">errors</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+                <span class="n">classification</span> <span class="o">=</span> <span class="s2">&quot;small&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">classification</span> <span class="o">=</span> <span class="s2">&quot;medium&quot;</span>
+                <span class="n">errors</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">errors</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">errors</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">errors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+            <span class="c1"># Process contour only if error is below threshold</span>
+            <span class="k">if</span> <span class="n">errors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mf">0.008</span><span class="p">:</span>
+                <span class="c1"># Calculate the centroid of the contour</span>
+                <span class="n">M</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">moments</span><span class="p">(</span><span class="n">cnt</span><span class="p">)</span>
+                <span class="n">cx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">M</span><span class="p">[</span><span class="s2">&quot;m10&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">M</span><span class="p">[</span><span class="s2">&quot;m00&quot;</span><span class="p">])</span>
+                <span class="n">cy</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">M</span><span class="p">[</span><span class="s2">&quot;m01&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">M</span><span class="p">[</span><span class="s2">&quot;m00&quot;</span><span class="p">])</span>
+
+                <span class="c1"># Find a the bounding box for the contour</span>
+                <span class="n">bounding_box</span> <span class="o">=</span> <span class="n">cv2</span><span class="o">.</span><span class="n">boundingRect</span><span class="p">(</span><span class="n">cnt</span><span class="p">)</span>
+                <span class="c1"># Data for the detected box</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">bounding_box</span><span class="p">,</span>
+                    <span class="n">box_contour</span><span class="p">,</span>
+                    <span class="p">(</span><span class="n">cx</span><span class="p">,</span> <span class="n">cy</span><span class="p">,</span> <span class="n">longest_side_coords</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">classification</span><span class="p">),</span>
+                    <span class="kc">True</span><span class="p">,</span>
+                <span class="p">]</span>
+                <span class="c1"># Difference in pixel values before two boxes are considered to be separate</span>
+                <span class="n">diff</span> <span class="o">=</span> <span class="mi">20</span>
+
+                <span class="c1"># Assign box data to a close detected box in previous frame. Otherwise add the box as a new box.</span>
+                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">prev_cnts</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;box_infos&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="p">(</span>
+                        <span class="nb">abs</span><span class="p">(</span><span class="n">prev_cnts</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="n">cx</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">diff</span>
+                        <span class="ow">and</span> <span class="nb">abs</span><span class="p">(</span><span class="n">prev_cnts</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">cy</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">diff</span>
+                    <span class="p">):</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;box_infos&quot;</span><span class="p">][</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span>
+                        <span class="k">break</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;box_infos&quot;</span><span class="p">][</span>
+                        <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="s2">&quot;box_&quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">])))</span>
+                    <span class="p">]</span> <span class="o">=</span> <span class="n">data</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span><span class="s2">&quot;n&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span></div>
+
+
+<div class="viewcode-block" id="BoxDetection.drawBoxes">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.BoxDetection.drawBoxes">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">drawBoxes</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">img</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+        <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Draw the bounding box, box contour and box label.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            img (np.ndarray): Image on which to draw.</span>
+<span class="sd">            detected_boxes (Tuple[List[int], List[int], Tuple[int, int, Tuple[int, int], int, str]]):</span>
+<span class="sd">            Box information in the format [Bounding Box, Box Contour, Box Information].</span>
+<span class="sd">            alpha (float, optional): Blending parameter. Higher value of alpha leads to stronger</span>
+<span class="sd">            contour fill color. Defaults to 0.2.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            np.ndarray: Output image with bounding box, box contour and box label.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">contour_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">img</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">img</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">bounding_box</span><span class="p">,</span> <span class="n">box_contour</span><span class="p">,</span> <span class="n">box_info</span><span class="p">,</span> <span class="n">updated</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">detected_boxes</span><span class="p">[</span>
+            <span class="s2">&quot;box_infos&quot;</span>
+        <span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">updated</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">h</span> <span class="o">=</span> <span class="n">bounding_box</span>
+            <span class="n">cv2</span><span class="o">.</span><span class="n">drawContours</span><span class="p">(</span>
+                <span class="n">contour_mask</span><span class="p">,</span> <span class="p">[</span><span class="n">box_contour</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span> <span class="n">thickness</span><span class="o">=</span><span class="n">cv2</span><span class="o">.</span><span class="n">FILLED</span>
+            <span class="p">)</span>
+            <span class="n">cv2</span><span class="o">.</span><span class="n">rectangle</span><span class="p">(</span>
+                <span class="n">img</span><span class="p">,</span>
+                <span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">),</span>
+                <span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="n">w</span><span class="p">,</span> <span class="n">y</span> <span class="o">+</span> <span class="n">h</span><span class="p">),</span>
+                <span class="p">(</span><span class="mi">255</span><span class="p">,</span> <span class="mi">255</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">cv2</span><span class="o">.</span><span class="n">rectangle</span><span class="p">(</span>
+                <span class="n">img</span><span class="p">,</span>
+                <span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">-</span> <span class="mi">4</span><span class="p">),</span>
+                <span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="p">(</span><span class="mi">60</span> <span class="k">if</span> <span class="n">box_info</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;medium&quot;</span> <span class="k">else</span> <span class="mi">44</span><span class="p">),</span> <span class="n">y</span> <span class="o">-</span> <span class="mi">24</span><span class="p">),</span>
+                <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">cv2</span><span class="o">.</span><span class="n">putText</span><span class="p">(</span>
+                <span class="n">img</span><span class="p">,</span>
+                <span class="n">box_info</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span>
+                <span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">-</span> <span class="mi">8</span><span class="p">),</span>
+                <span class="n">cv2</span><span class="o">.</span><span class="n">FONT_HERSHEY_SIMPLEX</span><span class="p">,</span>
+                <span class="mf">0.5</span><span class="p">,</span>
+                <span class="p">(</span><span class="mi">255</span><span class="p">,</span> <span class="mi">255</span><span class="p">,</span> <span class="mi">255</span><span class="p">),</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">cv2</span><span class="o">.</span><span class="n">addWeighted</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">contour_mask</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../../smart_palletizer_py.html#smart_palletizer_py.box_detection.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">init</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">node</span> <span class="o">=</span> <span class="n">BoxDetection</span><span class="p">()</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">spin</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+    <span class="n">node</span><span class="o">.</span><span class="n">destroy_node</span><span class="p">()</span>
+    <span class="n">rclpy</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Neura Robotics GmbH.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
