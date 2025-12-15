@@ -2,8 +2,8 @@ from collections import namedtuple
 import math
 from typing import Tuple
 
-import numpy as np
 from image_geometry import PinholeCameraModel
+import numpy as np
 
 BOX_DIMS = namedtuple("BOX_DIMS", ["x", "y", "z"])
 SMALL_BOX_DIMS = BOX_DIMS(x=0.255, y=0.155, z=0.100)
@@ -19,7 +19,8 @@ def time_filter(
         img (np.ndarray): Current image.
         prev_filtered_img (np.ndarray): Image from last frame with EMA applied.
         alpha (float, optional): Weight of current image. Defaults to 0.5.
-        delta (int, optional): Difference between pixel values above which EMA is not applied.
+        delta (int, optional): Difference between pixel values above which EMA
+        is not applied.
         Defaults to 20.
 
     Returns:
@@ -29,7 +30,8 @@ def time_filter(
     if not isinstance(prev_filtered_img, np.ndarray):
         return img
 
-    # Store data type of img and convert img and prev_filtered_img to np.float32 for accurate calculation
+    # Store data type of img and convert img and prev_filtered_img to np.
+    # float32 for accurate calculation
     dtype = img.dtype
     img = img.astype(np.float32)
     prev_filtered_img = prev_filtered_img.astype(np.float32)
@@ -93,12 +95,14 @@ def get_XYZ_from_Pixels(
         d (int | float): Depth coordinate.
 
     Returns:
-        Tuple[float, float, float]: Tuple containing a unit vector pointing from camera frame to pixel (u, v).
+        Tuple[float, float, float]: Tuple containing a unit vector pointing
+        from camera frame to pixel (u, v).
     """
     # Get unit vector
     X, Y, Z = camera.project_pixel_to_3d_ray((u, v))
 
-    # Find scaling factor needed to make the z-component of unit vector equal to depth
+    # Find scaling factor needed to make the z-component of unit vector equal
+    # to depth
     factor = d / (1000 * Z)
 
     return X * factor, Y * factor, Z * factor

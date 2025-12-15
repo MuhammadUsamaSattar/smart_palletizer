@@ -6,8 +6,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo
-from std_msgs.msg import Header
-from smart_palletizer_interfaces.msg import DetectedBoxes, BoxInfo, BoxInfoArray
+from smart_palletizer_interfaces.msg import BoxInfo, BoxInfoArray, DetectedBoxes
 from smart_palletizer_py import utils
 from tf2_ros import TransformBroadcaster
 
@@ -69,7 +68,8 @@ class PoseDetection(Node):
             box_tf = TransformStamped()
 
             box_tf.header = header
-            # box_tf.child_frame_id = detected_box.classification + "_" + str(number_boxes)
+            # box_tf.child_frame_id = detected_box.classification + "_" + str
+            # (number_boxes)
             box_tf.child_frame_id = detected_box.id
             number_boxes += 1
 
@@ -81,7 +81,8 @@ class PoseDetection(Node):
             box_tf.transform.translation.y = float(y)
             box_tf.transform.translation.z = float(z)
 
-            # Calculate the angle of longest side from x-axis and convert rotation to quaternion
+            # Calculate the angle of longest side from x-axis and convert
+            # rotation to quaternion
             theta = math.atan2(
                 (
                     detected_box.longest_side_coords[0].y

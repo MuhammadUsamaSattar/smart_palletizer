@@ -1,18 +1,17 @@
+from builtin_interfaces.msg import Duration
 import rclpy
 from rclpy.node import Node
+from smart_palletizer_interfaces.msg import BoxInfoArray
+from smart_palletizer_py import utils
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
-from builtin_interfaces.msg import Duration
-
-from smart_palletizer_py import utils
-from smart_palletizer_interfaces.msg import BoxInfoArray
 
 
 class BoxSpawn(Node):
     """Publishes box locations and sizes for rviz2."""
 
-    def __init__(self):
-        """Initializes publisher, subscriber and instance attributes."""
+    def __init__(self) -> None:
+        """Initialize publisher, subscriber and instance attributes."""
         super().__init__("box_spawn")
 
         self.transform_broadcaster_ = TransformBroadcaster(self)
