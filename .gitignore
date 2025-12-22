@@ -9,4 +9,4 @@ __pycache__
 .gitlab*
 /**/test.py
 .pytest_cache
-data/synthetic_data/
+data/synthetic_data*
