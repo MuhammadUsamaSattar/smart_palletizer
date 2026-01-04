@@ -2,7 +2,7 @@ from builtin_interfaces.msg import Duration
 import rclpy
 from rclpy.node import Node
 from smart_palletizer_interfaces.msg import BoxInfoArray
-from smart_palletizer_py import utils
+from smart_palletizer_utils import utils
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
 

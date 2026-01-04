@@ -9,7 +9,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 from smart_palletizer_interfaces.msg import DetectedBox, DetectedBoxes
-from smart_palletizer_py import utils
+from smart_palletizer_utils import utils
 
 
 class BoxDetection(Node):

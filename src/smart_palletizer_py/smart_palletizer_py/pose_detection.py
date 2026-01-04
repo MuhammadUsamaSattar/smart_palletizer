@@ -7,7 +7,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo
 from smart_palletizer_interfaces.msg import BoxInfo, BoxInfoArray, DetectedBoxes
-from smart_palletizer_py import utils
+from smart_palletizer_utils import utils
 from tf2_ros import TransformBroadcaster
 
 

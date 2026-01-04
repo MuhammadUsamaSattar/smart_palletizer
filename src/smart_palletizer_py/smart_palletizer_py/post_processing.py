@@ -7,7 +7,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
-from smart_palletizer_py import utils
+from smart_palletizer_utils import utils
 
 
 class PostProcessing(Node):
