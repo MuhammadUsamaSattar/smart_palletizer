@@ -1,7 +1,17 @@
+from collections import defaultdict
+import csv
+from datetime import datetime
+import gc
+import glob
+import itertools
 import math
 import os
+from tqdm import tqdm
 
+from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from smart_palletizer_cnn.box_and_pose_dataset import BoxAndPoseDataset
 from smart_palletizer_utils import utils
 import torch
@@ -259,76 +269,540 @@ def encode_labels_to_YOLO_format(labels, grid_size, anchors, num_classes, device
     return res
 
 
-def visualize_prediction(pred, image, grid_size, anchors, iou_threshold):
-    with torch.no_grad():
-        image = image.cpu().detach()
-        decoded_pred = decode_YOLO_encoding(pred, grid_size, anchors, iou_threshold)
-        decoded_pred[:, :2] = decoded_pred[:, :2] - (decoded_pred[:, 2:4] / 2)
+def visualize_prediction(pred, image):
+    image = image.cpu().detach()
 
-        labels = {"bboxes": decoded_pred.cpu().detach()}
-        utils.visualize_box_and_pose_data(image, labels, options={"color", "bboxes"})
+    labels = {"bboxes": pred.cpu().detach()}
+    utils.visualize_box_and_pose_data(image, labels, options={"color", "bboxes"})
+    del labels
 
 
-def decode_YOLO_encoding(pred, grid_size, anchors, iou_threshold):
-    mask = torch.sigmoid(pred[..., 4]) > 0.7
-    mask = torch.argwhere(mask)
-    h, w, a = mask.T
+def decode_YOLO_encoding(pred, grid_size, anchors, confidence_threshold, iou_threshold):
+    decoded_pred = [[] for _ in range(pred.shape[0])]
+    pred = pred.clone()
+    pred[..., 4] = torch.sigmoid(pred[..., 4])
+    pred[..., 5:] = torch.softmax(pred[..., 5:], dim=4)
 
-    decoded_pred = torch.stack(
-        [
-            (w + torch.sigmoid(pred[h, w, a, 0])) / grid_size,
-            (h + torch.sigmoid(pred[h, w, a, 1])) / grid_size,
-            anchors[a, 0] * torch.exp(pred[h, w, a, 2]),
-            anchors[a, 1] * torch.exp(pred[h, w, a, 3]),
-            torch.sigmoid(pred[h, w, a, 4]),
-        ],
-        dim=1,
-    )
-    decoded_pred = non_max_suppression(decoded_pred, iou_threshold=iou_threshold)
+    for b in range(pred.shape[0]):
+        mask = torch.argwhere(pred[b, ..., 4] > confidence_threshold)
+        h, w, a = mask.T
+
+        decoded_pred[b] = torch.stack(
+            [
+                (w + torch.sigmoid(pred[b, h, w, a, 0])) / grid_size,
+                (h + torch.sigmoid(pred[b, h, w, a, 1])) / grid_size,
+                anchors[a, 0] * torch.exp(pred[b, h, w, a, 2]),
+                anchors[a, 1] * torch.exp(pred[b, h, w, a, 3]),
+                pred[b, h, w, a, 4],
+                pred[b, h, w, a, 5],
+                pred[b, h, w, a, 6],
+            ],
+            dim=1,
+        )
+        decoded_pred[b][:, :2] = decoded_pred[b][:, :2] - (decoded_pred[b][:, 2:4] / 2)
+        decoded_pred[b] = non_max_suppression(
+            decoded_pred[b], iou_threshold=iou_threshold
+        )
 
     return decoded_pred
 
 
 def non_max_suppression(predictions, iou_threshold):
-    """Applies NMS to suppress overlapping boxes."""
-    if len(predictions) == 0:
-        return torch.tensor([])
-    # print(len(predictions))
+    """
+    Applies class-wise Non-Max Suppression.
+    predictions: (N, 5 + C) tensor
+    """
+    if predictions.numel() == 0:
+        return torch.empty((0, predictions.shape[1]), device=predictions.device)
 
-    # predictions[:, 2:4] = predictions[:, 0:2] + predictions[:, 2:4]
-    # predictions = list(predictions)
-    # predictions = sorted(predictions, key=lambda x: x[4], reverse=False)
-    _, idx = torch.sort(predictions[:, 4], dim=0, descending=True)
-    predictions = predictions[idx]
+    num_classes = predictions.shape[1] - 5
     final_predictions = []
 
-    while len(predictions) != 0:
-        final_predictions.append(predictions[0, :4])
-        ious = box_iou(predictions[0, :4], predictions[1:, :4], fmt="cxcywh")
-        mask = ious < iou_threshold
-        predictions = predictions[1:][mask[0]]
-        # predictions = [p for p in predictions if compute_iou(best[:4], p[:4]) < iou_threshold]
+    for cls in range(num_classes):
+        class_scores = predictions[:, 4] * predictions[:, 5 + cls]
+        mask = class_scores > 0
 
-    return torch.stack(final_predictions, dim=0)
+        if mask.sum() == 0:
+            continue
+
+        cls_preds = predictions[mask].clone()
+        cls_scores = class_scores[mask]
+
+        _, idx = torch.sort(cls_scores, descending=True)
+        cls_preds = cls_preds[idx]
+
+        while len(cls_preds) > 0:
+            best = cls_preds[0]
+            final_predictions.append(best)
+
+            if len(cls_preds) == 1:
+                break
+
+            ious = box_iou(
+                best[:4].unsqueeze(0), cls_preds[1:, :4], fmt="xywh"
+            ).squeeze(0)
+
+            cls_preds = cls_preds[1:][ious < iou_threshold]
+
+    return (
+        torch.stack(final_predictions, dim=0)
+        if final_predictions
+        else torch.empty((0, predictions.shape[1]), device=predictions.device)
+    )
 
 
-# def compute_iou(box1, box2):
-#     """Computes IoU between two bounding boxes."""
-#     x1 = max(box1[0], box2[0])
-#     y1 = max(box1[1], box2[1])
-#     x2 = min(box1[2], box2[2])
-#     y2 = min(box1[3], box2[3])
+def compute_mAP(preds, labels, iou_threshold, device):
+    num_classes = preds[0].shape[1] - 5
+    average_precisions = []
 
-#     intersection = max(0, x2 - x1) * max(0, y2 - y1)
-#     box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-#     box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-#     union = box1_area + box2_area - intersection
+    for cls in range(num_classes):
+        confs = []
+        true_positives = []
+        total_ground_truths = 0
 
-#     return intersection / union
+        for lbl in labels:
+            total_ground_truths += (lbl["categories"][:, cls] == 1).sum().item()
+
+        if total_ground_truths == 0:
+            average_precisions.append(0.0)
+            continue
+
+        for img_preds, img_labels in zip(preds, labels):
+            scores = img_preds[:, 4] * img_preds[:, 5 + cls]
+            keep = img_preds[:, 5 + cls] > 0.5
+
+            img_preds = img_preds[keep]
+            scores = scores[keep]
+
+            ground_truth_boxes = img_labels["bboxes"][
+                img_labels["categories"][:, cls] == 1
+            ].to(device)
+
+            if len(img_preds) == 0:
+                continue
+
+            confs.append(scores)
+
+            if len(ground_truth_boxes) == 0:
+                true_positives.append(torch.zeros(len(img_preds), device=device))
+                continue
+
+            ious = box_iou(img_preds[:, :4], ground_truth_boxes, fmt="xywh")
+            max_ious, ground_truth_idx = ious.max(dim=1)
+
+            assigned = torch.zeros(
+                len(ground_truth_boxes), dtype=torch.bool, device=device
+            )
+            true_positive = torch.zeros(len(img_preds), device=device)
+
+            for i in torch.argsort(scores, descending=True):
+                if max_ious[i] >= iou_threshold and not assigned[ground_truth_idx[i]]:
+                    true_positive[i] = 1
+                    assigned[ground_truth_idx[i]] = True
+
+            true_positives.append(true_positive)
+
+        if len(confs) == 0:
+            average_precisions.append(0.0)
+            continue
+
+        confs = torch.cat(confs)
+        true_positives = torch.cat(true_positives)
+
+        order = torch.argsort(confs, descending=True)
+        true_positives = true_positives[order]
+
+        false_positives = 1 - true_positives
+        true_positives_cum = torch.cumsum(true_positives, 0)
+        false_positives_cum = torch.cumsum(false_positives, 0)
+
+        recalls = true_positives_cum / total_ground_truths
+        precisions = true_positives_cum / (
+            true_positives_cum + false_positives_cum + 1e-9
+        )
+
+        # Precision envelope
+        for i in range(len(precisions) - 2, -1, -1):
+            precisions[i] = torch.maximum(precisions[i], precisions[i + 1])
+
+        # Remove duplicate precision points
+        keep = torch.ones_like(precisions, dtype=torch.bool)
+        keep[1:] = precisions[1:] != precisions[:-1]
+
+        precisions = precisions[keep]
+        recalls = recalls[keep]
+
+        # Area under PR curve
+        AP = torch.sum((recalls[1:] - recalls[:-1]) * precisions[:-1])
+        average_precisions.append(AP.item())
+
+    return sum(average_precisions) / len(average_precisions)
+
+
+def train_with_hyperparameter_grid_search(
+    training_dataloader,
+    validation_dataloader,
+    backbone_num_conv_blocks: list,
+    backbone_in_channels,
+    backbone_first_layer_out_channels: list,
+    backbone_kernel_size: list,
+    backbone_max_pooling: list,
+    prediction_head_num_classes,
+    image_size,
+    anchors,
+    lambda_coords: list,
+    lambda_no_obj: list,
+    num_epochs,
+    device,
+    lr: list = [0.001],
+    print_info_after_batches=False,
+    print_info_after_epoch=False,
+    visualize_after_batches=False,
+    visualize_after_epoch=False,
+    visualize_after_training=False,
+    iou_threshold_NMS=0.30,
+    iou_threshold_mAP=0.50,
+    drop_models_after_epochs=5,
+    models_to_keep=1 / 3,
+    n_remaining_models=5,
+    max_patience=5,
+    min_delta=0.001,
+    verbose=False,
+    **kwargs,
+):
+
+    param_sets = itertools.product(
+        backbone_num_conv_blocks,
+        backbone_first_layer_out_channels,
+        backbone_kernel_size,
+        backbone_max_pooling,
+        lambda_coords,
+        lambda_no_obj,
+        lr,
+    )
+
+    models_dir = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        f"models_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}",
+    )
+    os.makedirs(
+        models_dir,
+        exist_ok=True,
+    )
+    runs = create_models(
+        backbone_in_channels,
+        prediction_head_num_classes,
+        image_size,
+        anchors,
+        device,
+        verbose,
+        param_sets,
+        models_dir,
+    )
+
+    csv_path = os.path.join(models_dir, "data.csv")
+    with open(csv_path, "w", newline="") as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow([run["run_id"] for run in runs])
+        csv_writer.writerow([run["model_name"] for run in runs])
+        csv_file.flush()
+
+        n_active_models = len(runs)
+        for epoch in tqdm(range(num_epochs), desc="Epochs", unit="epoch"):
+            tqdm.write("################################")
+            tqdm.write(
+                f"Epochs {epoch+1}/{num_epochs} - Active Models {n_active_models}/{len(runs)}"
+            )
+            tqdm.write("--------------------------------")
+            for run in tqdm(
+                runs[:n_active_models], desc="Active Models", unit="model", leave=False
+            ):
+                if not run["active"]:
+                    continue
+
+                X, pred = train_checkpoint_for_one_epoch(
+                    training_dataloader,
+                    validation_dataloader,
+                    backbone_in_channels,
+                    prediction_head_num_classes,
+                    anchors,
+                    num_epochs,
+                    device,
+                    print_info_after_batches,
+                    print_info_after_epoch,
+                    visualize_after_batches,
+                    visualize_after_epoch,
+                    iou_threshold_NMS,
+                    iou_threshold_mAP,
+                    max_patience,
+                    min_delta,
+                    verbose,
+                    epoch,
+                    run,
+                    models_dir,
+                )
+
+            runs[:n_active_models] = sorted(
+                runs[:n_active_models], key=lambda run: run["mAP"], reverse=True
+            )
+
+            if verbose:
+                tqdm.write(
+                    "lr=learning rate",
+                    "lmbd-co=lambda_coords",
+                    "lmbd-no=lambda_no_obj",
+                    "bb-ncb=backbone_num_conv_blocks",
+                    "bb-flc=backbone_first_layer_out_channels",
+                    "bb-ks=backbone_kernel_size",
+                    "bb-mp=backbone_max_pooling",
+                    sep="\n",
+                    end="\n\n",
+                )
+
+            for run in runs[:n_active_models]:
+                if run["active"]:
+                    tqdm.write(
+                        f"run_id={run["run_id"]}, model_name={run["model_name"]}, mAP={run["mAP"]:.5f}, Active"
+                    )
+                else:
+                    tqdm.write(
+                        f"run_id={run["run_id"]}, model_name={run["model_name"]}, mAP={run["mAP"]:.5f}, Early Stopped"
+                    )
+
+            csv_writer.writerow(
+                [
+                    run["mAP"] if run["active"] else None
+                    for run in sorted(runs, key=lambda run: run["run_id"])
+                ]
+            )
+            csv_file.flush()
+
+            if (
+                n_active_models > n_remaining_models
+                and (epoch + 1) % drop_models_after_epochs == 0
+            ):
+                tqdm.write(f"Dropping {1-models_to_keep:.0%} of worst active models!")
+                n_active_models = drop_runs(
+                    models_to_keep,
+                    n_remaining_models,
+                    runs,
+                    n_active_models,
+                    models_dir,
+                )
+
+    for filename in glob.glob(models_dir + "/curr_*"):
+        os.remove(filename)
+
+    if visualize_after_training:
+        visualize_prediction(pred, X)
+
+    plot_hyperparam_search_summary(csv_path)
+
+
+def drop_runs(models_to_keep, n_remaining_models, runs, n_active_models, models_dir):
+    prev_n_active_models = n_active_models
+    n_active_models = max(
+        math.floor(n_active_models * models_to_keep), n_remaining_models
+    )
+    for run in runs[n_active_models:prev_n_active_models]:
+        run["active"] = False
+        if run["patience"] > 0:
+            os.remove(os.path.join(models_dir, "curr_" + run["model_name"]))
+
+    return n_active_models
+
+
+def train_checkpoint_for_one_epoch(
+    training_dataloader,
+    validation_dataloader,
+    backbone_in_channels,
+    prediction_head_num_classes,
+    anchors,
+    num_epochs,
+    device,
+    print_info_after_batches,
+    print_info_after_epoch,
+    visualize_after_batches,
+    visualize_after_epoch,
+    iou_threshold_NMS,
+    iou_threshold_mAP,
+    max_patience,
+    min_delta,
+    verbose,
+    epoch,
+    run,
+    models_dir,
+):
+    if verbose:
+        tqdm.write(f"Processing run_id={run["run_id"]}")
+
+    model = YOLOModel(
+        backbone_num_conv_blocks=run["backbone_num_conv_blocks"],
+        backbone_in_channels=backbone_in_channels,
+        backbone_first_layer_out_channels=run["backbone_first_layer_out_channels"],
+        backbone_kernel_size=run["backbone_kernel_size"],
+        backbone_max_pooling=run["backbone_max_pooling"],
+        prediction_head_num_anchors=anchors.shape[0],
+        prediction_head_num_classes=prediction_head_num_classes,
+    )
+    optimizer = Adam(model.parameters(), lr=run["lr"])
+    model, optimizer, _, _, _ = load_model(
+        model,
+        models_dir,
+        run["model_name"],
+        optimizer,
+        best=run["patience"] == 0,
+        device=device,
+        verbose=verbose,
+    )
+
+    loss_fn = get_loss_fn(
+        lambda_coords=run["lambda_coords"],
+        lambda_no_obj=run["lambda_no_obj"],
+        grid_size=run["grid_size"],
+        anchors=anchors,
+        num_classes=prediction_head_num_classes,
+        device=device,
+    )
+
+    mAP, loss, X, pred = train_one_epoch(
+        training_dataloader,
+        validation_dataloader,
+        anchors,
+        num_epochs,
+        device,
+        print_info_after_batches,
+        print_info_after_epoch,
+        visualize_after_batches,
+        visualize_after_epoch,
+        iou_threshold_NMS,
+        iou_threshold_mAP,
+        run["grid_size"],
+        model,
+        optimizer,
+        loss_fn,
+        epoch,
+    )
+
+    run["mAP"] = mAP
+    if run["mAP"] >= run["best_mAP"] + min_delta:
+        run["best_mAP"] = run["mAP"]
+
+        if run["patience"] > 0:
+            os.remove(os.path.join(models_dir, "curr_" + run["model_name"]))
+        run["patience"] = 0
+    else:
+        run["patience"] += 1
+        if run["patience"] >= max_patience:
+            run["active"] = False
+            os.remove(os.path.join(models_dir, "curr_" + run["model_name"]))
+
+    save_model(
+        model=model,
+        models_dir=models_dir,
+        model_name=run["model_name"],
+        optimizer=optimizer,
+        mAP=mAP,
+        loss=loss,
+        epoch=epoch,
+        best=run["patience"] == 0,
+        verbose=verbose,
+    )
+    free_memory(model, optimizer)
+
+    return X[0], pred[0]
+
+
+def create_models(
+    backbone_in_channels,
+    prediction_head_num_classes,
+    image_size,
+    anchors,
+    device,
+    verbose,
+    param_sets,
+    models_dir,
+):
+    runs = []
+    for i, params in enumerate(
+        tqdm(list(param_sets), desc="Creating Models", unit="model", leave=False)
+    ):
+        if verbose:
+            tqdm.write(f"Creating run_id={i}")
+
+        runs.append({})
+        runs[-1]["run_id"] = i
+        runs[-1]["backbone_num_conv_blocks"] = params[0]
+        runs[-1]["backbone_first_layer_out_channels"] = params[1]
+        runs[-1]["backbone_kernel_size"] = params[2]
+        runs[-1]["backbone_max_pooling"] = params[3]
+        runs[-1]["lambda_coords"] = params[4]
+        runs[-1]["lambda_no_obj"] = params[5]
+        runs[-1]["lr"] = params[6]
+        runs[-1]["grid_size"] = image_size // (2 ** params[0])
+        runs[-1]["mAP"] = -1.0
+        runs[-1]["best_mAP"] = -1.0
+        runs[-1]["patience"] = 0
+        runs[-1]["active"] = True
+
+        model = YOLOModel(
+            backbone_num_conv_blocks=runs[-1]["backbone_num_conv_blocks"],
+            backbone_in_channels=backbone_in_channels,
+            backbone_first_layer_out_channels=runs[-1][
+                "backbone_first_layer_out_channels"
+            ],
+            backbone_kernel_size=runs[-1]["backbone_kernel_size"],
+            backbone_max_pooling=runs[-1]["backbone_max_pooling"],
+            prediction_head_num_anchors=anchors.shape[0],
+            prediction_head_num_classes=prediction_head_num_classes,
+        ).to(device)
+        optimizer = Adam(model.parameters(), lr=runs[-1]["lr"])
+
+        runs[-1]["model_name"] = "_".join(
+            [
+                model._get_name(),
+                f"lr-{runs[-1]["lr"]}",
+                f"lmbd-co-{runs[-1]["lambda_coords"]}",
+                f"lmbd-no-{runs[-1]["lambda_no_obj"]}",
+                f"bb-ncb-{runs[-1]["backbone_num_conv_blocks"]}",
+                f"bb-flc-{runs[-1]["backbone_first_layer_out_channels"]}",
+                f"bb-ks-{runs[-1]["backbone_kernel_size"]}",
+                f"bb-mp-{runs[-1]["backbone_max_pooling"]}",
+            ]
+        )
+
+        save_model(
+            model=model,
+            models_dir=models_dir,
+            model_name=runs[-1]["model_name"],
+            optimizer=optimizer,
+            mAP=-1,
+            loss=-1,
+            epoch=0,
+            verbose=verbose,
+        )
+
+        free_memory(model, optimizer)
+
+    return runs
+
+
+def free_memory(model, optimizer):
+    if model is not None:
+        model = model.to("cpu")  # move weights off GPU
+    if optimizer is not None:
+        optimizer.state.clear()  # drop optimizer tensors
+
+    del optimizer
+    del model
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 def train(
     training_dataloader,
+    validation_dataloader,
     backbone_num_conv_blocks,
     backbone_in_channels,
     backbone_first_layer_out_channels,
@@ -342,11 +816,14 @@ def train(
     num_epochs,
     device,
     lr=0.001,
-    print_loss_after_batches=False,
+    print_info_after_batches=False,
+    print_info_after_epoch=False,
     visualize_after_batches=False,
     visualize_after_epoch=False,
     visualize_after_training=False,
-    iou_threshold=0.25,
+    iou_threshold_NMS=0.30,
+    iou_threshold_mAP=0.50,
+    **kwargs,
 ):
 
     grid_size = image_size // (2**backbone_num_conv_blocks)
@@ -368,103 +845,460 @@ def train(
         num_classes=prediction_head_num_classes,
         device=device,
     )
+    model_name = "models" + "_".join(
+        [
+            model._get_name(),
+            f"lr-{lr}",
+            f"lambda-coords-{lambda_coords}",
+            f"lambda-no-obj-{lambda_no_obj}",
+            f"backbone-num-conv-blocks-{backbone_num_conv_blocks}",
+            f"backbone-first-layer-out-channels-{backbone_first_layer_out_channels}",
+            f"backbone-kernel-size-{backbone_kernel_size}",
+            f"backbone-max-pooling-{backbone_max_pooling}",
+        ]
+    )
 
     for epoch in range(num_epochs):
-        model.train()
-        epoch_loss = 0
-
-        for i, (X, y) in enumerate(training_dataloader):
-            X, y = X.to(device), y
-
-            pred = model(X)
-
-            loss = loss_fn(pred=pred, labels=y)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss += loss.item()
-
-            if i % max(len(training_dataloader) // 10, 1) == 0:
-                if print_loss_after_batches:
-                    print(f"Batch {i+1}/{len(training_dataloader)}, {loss.item()=}")
-                if visualize_after_batches:
-                    visualize_prediction(
-                        pred[0], X[0], grid_size, anchors, iou_threshold=iou_threshold
-                    )
-
-        print(
-            f"Epoch {epoch+1}/{num_epochs}, Average epoch loss = {epoch_loss/len(training_dataloader)}"
+        mAP, loss, X, pred = train_one_epoch(
+            training_dataloader,
+            validation_dataloader,
+            anchors,
+            num_epochs,
+            device,
+            print_info_after_batches,
+            print_info_after_epoch,
+            visualize_after_batches,
+            visualize_after_epoch,
+            iou_threshold_NMS,
+            iou_threshold_mAP,
+            grid_size,
+            model,
+            optimizer,
+            loss_fn,
+            epoch,
         )
 
-        if visualize_after_epoch:
-            visualize_prediction(
-                pred[0], X[0], grid_size, anchors, iou_threshold=iou_threshold
-            )
-
-    os.makedirs(os.path.join(os.path.dirname(os.path.realpath(__file__)), "models"), exist_ok=True)
-    model_path  = os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "models",
-            "_".join(
-                [
-                    model._get_name(),
-                    f"lr-{lr}",
-                    f"lambda-coords-{lambda_coords}",
-                    f"lambda-no-obj-{lambda_no_obj}",
-                    f"backbone-num-conv-blocks-{backbone_num_conv_blocks}",
-                    f"backbone-first-layer-out-channels-{backbone_first_layer_out_channels}",
-                    f"backbone-kernel-size-{backbone_kernel_size}",
-                    f"backbone-max-pooling-{backbone_max_pooling}",
-                ]
-            ),
-        )
-    torch.save(
-        model.state_dict(),
-        model_path
+    save_model(
+        model=model,
+        model_name=model_name,
+        optimizer=optimizer,
+        mAP=mAP,
+        loss=loss,
+        epoch=epoch,
     )
-    print(f"Model saved to {model_path}")
 
     if visualize_after_training:
-        visualize_prediction(
-            pred[0], X[0], grid_size, anchors, iou_threshold=iou_threshold
+        visualize_prediction(pred, X)
+
+
+def save_model(
+    model,
+    models_dir,
+    model_name,
+    optimizer,
+    mAP,
+    loss,
+    epoch,
+    best=True,
+    verbose=False,
+):
+    if not best:
+        model_name = "curr_" + model_name
+    os.makedirs(
+        models_dir,
+        exist_ok=True,
+    )
+    model_path = os.path.join(
+        models_dir,
+        model_name,
+    )
+
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "mAP": mAP,
+            "epoch": epoch,
+            "loss": loss,
+        },
+        model_path,
+    )
+
+    if verbose:
+        tqdm.write(f"Model saved to {model_path}")
+
+
+def load_model(
+    model,
+    models_dir,
+    model_name,
+    optimizer,
+    device,
+    best=True,
+    verbose=False,
+):
+    if not best:
+        model_name = "curr_" + model_name
+
+    model_path = os.path.join(
+        models_dir,
+        model_name,
+    )
+    checkpoint = torch.load(model_path, weights_only=True, map_location=device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model = model.to(device)
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    mAP = checkpoint["mAP"]
+    loss = checkpoint["loss"]
+    epoch = checkpoint["epoch"]
+
+    del checkpoint
+    if verbose:
+        tqdm.write(f"Model loaded from {model_path}")
+
+    return model, optimizer, mAP, loss, epoch
+
+
+def train_one_epoch(
+    training_dataloader,
+    validation_dataloader,
+    anchors,
+    num_epochs,
+    device,
+    print_info_after_batches,
+    print_info_after_epoch,
+    visualize_after_batches,
+    visualize_after_epoch,
+    iou_threshold_NMS,
+    iou_threshold_mAP,
+    grid_size,
+    model,
+    optimizer,
+    loss_fn,
+    epoch,
+):
+    model.train()
+    epoch_loss = 0
+
+    for i, (X, y) in enumerate(
+        tqdm(training_dataloader, desc="Training Batches", unit="batch", leave=False)
+    ):
+        X, y = X.to(device), y
+
+        pred = model(X)
+
+        loss = loss_fn(pred=pred, labels=y)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+        if i % max(len(training_dataloader) // 10, 1) == 0:
+            if print_info_after_batches:
+                tqdm.write(f"Batch {i+1}/{len(training_dataloader)}, {loss.item()=}")
+            if visualize_after_batches:
+                visualize_prediction(pred[0], X[0])
+
+    model.eval()
+    with torch.inference_mode():
+        decoded_pred = []
+        labels = []
+        for X, y in tqdm(
+            validation_dataloader, desc="Validation Batches", unit="batch", leave=False
+        ):
+            X = X.to(device)
+            pred = model(X)
+            decoded_pred.extend(
+                decode_YOLO_encoding(pred, grid_size, anchors, 0.0, iou_threshold_NMS)
+            )
+            labels.extend(y)
+        mAP = compute_mAP(decoded_pred, labels, iou_threshold_mAP, device)
+        del decoded_pred
+
+    if print_info_after_epoch:
+        tqdm.write(
+            f"Epoch {epoch+1}/{num_epochs}, Average epoch loss = {epoch_loss/len(training_dataloader)}, {mAP=}"
         )
+
+    if visualize_after_epoch:
+        visualize_prediction(pred[0], X[0])
+    return mAP, epoch_loss / len(training_dataloader), X[0], pred[0]
+
+
+def plot_hyperparam_search_summary(csv_path, top_k=20, interaction_pairs=None):
+    # ==========================================================
+    # 1. LOAD + PREPROCESS
+    # ==========================================================
+    df = pd.read_csv(csv_path, header=None)
+    model_names = df.iloc[1].values
+    values = df.iloc[2:].apply(pd.to_numeric, errors="coerce")
+
+    n_models = len(model_names)
+    run_ids = np.arange(n_models)
+
+    max_mAP = values.max(axis=0)
+    mean_mAP = values.mean(axis=0)
+    survival_len = values.notna().sum(axis=0)
+
+    # ----------------------------------------------------------
+    # Parse hyperparameters from model names
+    # ----------------------------------------------------------
+    parsed_params = []
+    hyperparams = defaultdict(list)
+
+    for name in model_names:
+        params = {}
+        for part in name.split("_"):
+            if "-" in part:
+                *k, v = part.split("-", -1)
+                key = "-".join(k)
+                params[key] = v
+        parsed_params.append(params)
+        for k, v in params.items():
+            hyperparams[k].append(v)
+    hyperparams = dict(hyperparams)
+
+    # ==========================================================
+    # 2. FIGURE 1: SUMMARY + HYPERPARAM BOX PLOTS (3x4)
+    # ==========================================================
+    fig1 = plt.figure(figsize=(16, 12))
+    gs1 = GridSpec(3, 4, figure=fig1)
+    plot_idx = 0
+
+    def next_ax1():
+        nonlocal plot_idx
+        row, col = divmod(plot_idx, 4)
+        ax = fig1.add_subplot(gs1[row, col])
+        plot_idx += 1
+        return ax
+
+    # --- Top-K leaderboard
+    ax = next_ax1()
+    top_idx = max_mAP.sort_values(ascending=False).head(top_k).index
+    ax.barh(range(len(top_idx)), max_mAP[top_idx][::-1])
+    ax.set_yticks(range(len(top_idx)))
+    ax.set_yticklabels([f"run_{i}" for i in top_idx][::-1])
+    ax.set_title(f"Top {top_k} Models (Max mAP)")
+    ax.set_xlabel("mAP")
+
+    # --- Distribution
+    ax = next_ax1()
+    ax.hist(max_mAP.dropna(), bins=30)
+    ax.set_title("Distribution of Max mAP")
+
+    # --- Survival
+    ax = next_ax1()
+    ax.scatter(run_ids, survival_len, s=10)
+    ax.set_title("Epochs Survived")
+    ax.set_xlabel("Run ID")
+
+    # --- Best mAP vs run_id
+    ax = next_ax1()
+    ax.scatter(run_ids, max_mAP, s=10)
+    ax.set_title("Best mAP vs Run ID")
+    ax.set_xlabel("Run ID")
+
+    # --- mAP vs epochs for top_k
+    ax = next_ax1()
+    for i in top_idx:
+        y = values.iloc[:, i].dropna().values
+        # prepend 0.0 at epoch 0
+        y = np.insert(y, 0, 0.0)
+        x = np.arange(len(y))  # epochs 0, 1, 2, ...
+        ax.plot(x, y, alpha=0.5, label=f"run_{i}")
+
+    ax.set_title(f"Top-{top_k} mAP vs Epochs")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("mAP")
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(int(v)) for v in x])
+
+    # --- Hyperparameter boxplots
+    for hp, vals in hyperparams.items():
+        grouped = defaultdict(list)
+        for i, v in enumerate(vals):
+            if not np.isnan(max_mAP.iloc[i]):
+                grouped[v].append(max_mAP.iloc[i])
+        if len(grouped) < 2:
+            continue
+        if plot_idx >= 12:
+            break
+        ax = next_ax1()
+        labels = list(grouped.keys())
+        data = [grouped[k] for k in labels]
+        ax.boxplot(data, tick_labels=labels, showfliers=False)
+        ax.set_title(hp, fontsize=10)
+        ax.tick_params(axis="x", rotation=30, labelsize=8)
+
+    # --- Pareto front
+    if plot_idx < 12:
+        points = np.column_stack([survival_len.values, max_mAP.values])
+        pareto = []
+        for i, p in enumerate(points):
+            if not any(
+                (q[0] <= p[0] and q[1] >= p[1]) and (q != p).any() for q in points
+            ):
+                pareto.append(p)
+        if pareto:
+            pareto = np.array(sorted(pareto, key=lambda x: x[0]))
+            ax = next_ax1()
+            ax.scatter(survival_len, max_mAP, alpha=0.4, label="All models")
+            ax.plot(pareto[:, 0], pareto[:, 1], "r-o", label="Pareto front")
+            ax.set_xlabel("Epochs Trained")
+            ax.set_ylabel("Max mAP")
+            ax.set_title("Pareto Front")
+            ax.legend()
+
+    # Turn off unused axes
+    for i in range(plot_idx, 12):
+        row, col = divmod(i, 4)
+        fig1.add_subplot(gs1[row, col]).axis("off")
+
+    plt.tight_layout()
+
+    # ==========================================================
+    # 3. FIGURE 2: INTERACTION HEATMAPS (3x7)
+    # ==========================================================
+    if interaction_pairs is None:
+        keys = list(hyperparams.keys())
+        interaction_pairs = list(itertools.combinations(keys, 2))
+
+    fig2 = plt.figure(figsize=(21, 12))
+    gs2 = GridSpec(3, 7, figure=fig2)
+    plot_idx = 0
+
+    def next_ax2():
+        nonlocal plot_idx
+        row, col = divmod(plot_idx, 7)
+        ax = fig2.add_subplot(gs2[row, col])
+        plot_idx += 1
+        return ax
+
+    for p1, p2 in interaction_pairs:
+        table = defaultdict(list)
+        for i, params in enumerate(parsed_params):
+            if p1 in params and p2 in params and not np.isnan(max_mAP.iloc[i]):
+                table[(params[p1], params[p2])].append(max_mAP.iloc[i])
+        if not table:
+            continue
+        xs = sorted({k[0] for k in table})
+        ys = sorted({k[1] for k in table})
+        Z = np.full((len(ys), len(xs)), np.nan)
+        for (x, y), vals in table.items():
+            Z[ys.index(y), xs.index(x)] = np.mean(vals)
+        ax = next_ax2()
+        im = ax.imshow(Z, origin="lower", aspect="auto")
+        ax.set_xticks(range(len(xs)))
+        ax.set_xticklabels(xs, rotation=30)
+        ax.set_yticks(range(len(ys)))
+        ax.set_yticklabels(ys)
+        ax.set_xlabel(p1)
+        ax.set_ylabel(p2)
+        ax.set_title(f"{p1} x {p2}")
+        fig2.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Mean Max mAP")
+
+    # Turn off unused axes
+    for i in range(plot_idx, 21):
+        row, col = divmod(i, 7)
+        fig2.add_subplot(gs2[row, col]).axis("off")
+
+    plt.tight_layout()
+
+    # ==========================================================
+    # 4. SHOW BOTH FIGURES
+    # ==========================================================
+    plt.show()
 
 
 if __name__ == "__main__":
+    # params = {
+    #     "backbone_in_channels": 2,
+    #     "backbone_num_conv_blocks": [5],
+    #     "backbone_first_layer_out_channels": [16, 32],
+    #     "backbone_kernel_size": [3, 5],
+    #     "backbone_max_pooling": [False, True],
+    #     "prediction_head_num_classes": 2,
+    #     "image_size": 512,
+    #     "num_epochs": 100,
+    #     "batch_size": 32,
+    #     "print_info_after_batches": False,
+    #     "print_info_after_epoch": False,
+    #     "visualize_after_batches": False,
+    #     "visualize_after_epoch": False,
+    #     "visualize_after_training": False,
+    #     "iou_threshold_NMS": 0.30,
+    #     "iou_threshold_mAP": 0.50,
+    #     "lambda_coords": [10, 50, 100],
+    #     "lambda_no_obj": [0.1, 0.5, 1.0],
+    #     "lr": [0.001, 0.01],
+    #     "drop_models_after_epochs": 5,
+    #     "models_to_drop": 1 / 3,
+    #     "n_remaining_models": 5,
+    # }
+
+    # params = {
+    #     "backbone_in_channels": 2,
+    #     "backbone_num_conv_blocks": [5, 6],
+    #     "backbone_first_layer_out_channels": [16, 32],
+    #     "backbone_kernel_size": [3, 5],
+    #     "backbone_max_pooling": [False, True],
+    #     "prediction_head_num_classes": 2,
+    #     "image_size": 512,
+    #     "num_epochs": 2,
+    #     "batch_size": 32,
+    #     "print_info_after_batches": False,
+    #     "print_info_after_epoch": False,
+    #     "visualize_after_batches": False,
+    #     "visualize_after_epoch": False,
+    #     "visualize_after_training": False,
+    #     "iou_threshold_NMS": 0.30,
+    #     "iou_threshold_mAP": 0.50,
+    #     "lambda_coords": [10, 50],
+    #     "lambda_no_obj": [0.1, 0.5],
+    #     "lr": [0.001, 0.01],
+    #     "drop_models_after_epochs": 5,
+    #     "models_to_drop": 1 / 3,
+    #     "n_remaining_models": 5,
+    # }
+
     params = {
         "backbone_in_channels": 2,
+        "backbone_num_conv_blocks": [5, 6],
+        "backbone_first_layer_out_channels": [16, 32],
+        "backbone_kernel_size": [5, 7],
+        "backbone_max_pooling": [False],
         "prediction_head_num_classes": 2,
         "image_size": 512,
-        "num_epochs": 1,
-        "batch_size": 82,
-        "print_loss_after_batches": True,
+        "num_epochs": 10,
+        "batch_size": 16,
+        "print_info_after_batches": False,
+        "print_info_after_epoch": False,
         "visualize_after_batches": False,
         "visualize_after_epoch": False,
-        "visualize_after_training": True,
-        "iou_threshold": 0.25,
+        "visualize_after_training": False,
+        "iou_threshold_NMS": 0.30,
+        "iou_threshold_mAP": 0.50,
+        "lambda_coords": [50],
+        "lambda_no_obj": [0.1],
+        "lr": [0.001],
+        "drop_models_after_epochs": 5,
+        "models_to_keep": 1 / 3,
+        "n_remaining_models": 5,
+        "max_patience": 5,
+        "min_delta": 0.001,
+        "verbose": False,
     }
-    torch.set_printoptions(threshold=10_000)
     device = (
         torch.accelerator.current_accelerator().type
         if torch.accelerator.is_available()
         else "cpu"
     )
 
-    anchors = generate_anchors(
-        [0.05, 0.1, 0.2, 0.3], [1 / 1.65, 1 / 1.35, 1.35, 1.65]
-    ).to(device)
-
-    params.update({
-        "backbone_num_conv_blocks": 5,
-        "backbone_first_layer_out_channels": 16,
-        "backbone_kernel_size": 3,
-        "backbone_max_pooling": True,
-        "lambda_coords": 50,
-        "lambda_no_obj": 0.5,
-        "lr": 0.001,
-    })
+    anchors = generate_anchors([0.10, 0.15, 0.20, 0.25], [0.75, 1.00, 1.25, 1.50]).to(
+        device
+    )
 
     data = BoxAndPoseDataset(
         "data/synthetic_data",
@@ -476,10 +1310,20 @@ if __name__ == "__main__":
         dtype=torch.float32,
     )
 
-    training_data, testing_data = random_split(data, [0.01, 0.99])
+    training_data, validation_data, testing_data = random_split(
+        data,
+        [0.70, 0.15, 0.15],
+        # [0.001, 0.001, 0.998],
+    )
 
     training_dataloader = DataLoader(
         training_data,
+        batch_size=params["batch_size"],
+        shuffle=True,
+        collate_fn=collate_fn,
+    )
+    validation_dataloader = DataLoader(
+        validation_data,
         batch_size=params["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
@@ -491,96 +1335,15 @@ if __name__ == "__main__":
         collate_fn=collate_fn,
     )
 
-    # train(
-    #     training_dataloader,
-    #     backbone_num_conv_blocks=params["backbone_num_conv_blocks"],
-    #     backbone_in_channels=params["backbone_in_channels"],
-    #     backbone_first_layer_out_channels=params["backbone_first_layer_out_channels"],
-    #     backbone_kernel_size=params["backbone_kernel_size"],
-    #     backbone_max_pooling=params["backbone_max_pooling"],
-    #     prediction_head_num_classes=params["prediction_head_num_classes"],
-    #     image_size=params["image_size"],
-    #     anchors=anchors,
-    #     lambda_coords=params["lambda_coords"],
-    #     lambda_no_obj=params["lambda_no_obj"],
-    #     num_epochs=params["num_epochs"],
-    #     device=device,
-    #     lr=params["lr"],
-    #     print_loss_after_batches=params["print_loss_after_batches"],
-    #     visualize_after_batches=params["visualize_after_batches"],
-    #     visualize_after_epoch=params["visualize_after_epoch"],
-    #     visualize_after_training=params["visualize_after_training"],
-    #     iou_threshold=params["iou_threshold"],
-    # )
+    params.update(
+        {
+            "anchors": anchors,
+            "device": device,
+            "training_dataloader": training_dataloader,
+            "validation_dataloader": validation_dataloader,
+        }
+    )
 
-import torch
-from torch.utils.data import DataLoader
+    # train_single_hyperaparamter_set(**params)
 
-# ---------- Fast WH collection ----------
-def collect_wh_fast(dataset, batch_size=128, device="cpu"):
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=lambda x: x)
-    wh = []
-
-    for batch in loader:
-        for _, label in batch:
-            b = label["bboxes"][:, 2:4]  # (N, 2)
-            if len(b) > 0:
-                wh.append(b)
-
-    return torch.cat(wh, dim=0).to(device)  # (M, 2)
-
-
-# ---------- Fast IoU ----------
-def wh_iou(boxes, anchors):
-    # boxes: (M, 2), anchors: (A, 2)
-    inter = torch.min(boxes[:, None, :], anchors[None, :, :]).prod(dim=2)
-    union = boxes.prod(dim=1, keepdim=True) + anchors.prod(dim=1) - inter
-    return inter / union
-
-
-# ---------- GPU KMeans ----------
-def kmeans_anchors_fast(wh, k=4, iters=25):
-    idx = torch.randperm(len(wh))[:k]
-    anchors = wh[idx].clone()
-
-    for _ in range(iters):
-        ious = wh_iou(wh, anchors)      # (M, k)
-        best = torch.argmax(ious, dim=1)
-
-        new_anchors = []
-        for i in range(k):
-            mask = best == i
-            new_anchors.append(
-                wh[mask].mean(dim=0) if mask.any() else anchors[i]
-            )
-
-        anchors = torch.stack(new_anchors)
-
-    return anchors
-
-
-# ---------- Convert to scales & ratios ----------
-def anchors_to_scales_ratios(anchors):
-    w, h = anchors[:, 0], anchors[:, 1]
-    scales = torch.sqrt(w * h)
-    ratios = w / h
-    return scales, ratios
-
-
-# ---------- Main ----------
-def generate_anchors_scales_ratios_fast(dataset, k=4, batch_size=128):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    wh = collect_wh_fast(dataset, batch_size=batch_size, device=device)
-    anchors = kmeans_anchors_fast(wh, k=k)
-    scales, ratios = anchors_to_scales_ratios(anchors)
-
-    return anchors.cpu(), scales.cpu(), ratios.cpu()
-
-
-# ---------- Example ----------
-anchors, scales, ratios = generate_anchors_scales_ratios_fast(data, k=4)
-print("Anchors:\n", anchors)
-print("Scales:\n", scales)
-print("Ratios:\n", ratios)
-
+    train_with_hyperparameter_grid_search(**params)
