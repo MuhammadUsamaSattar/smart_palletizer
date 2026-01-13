@@ -6,6 +6,7 @@ import glob
 import itertools
 import math
 import os
+import random
 from tqdm import tqdm
 
 from matplotlib.gridspec import GridSpec
@@ -29,21 +30,15 @@ class Conv2DBlock(nn.Module):
         out_channels,
         kernel_size,
         padding,
-        max_pooling,
         stride=2,
     ):
         super().__init__()
-        if max_pooling:
-            stride = 1
 
         self.layers = [
             nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
         ]
-
-        if max_pooling:
-            self.layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
 
         self.layers = nn.Sequential(*self.layers)
 
@@ -54,27 +49,50 @@ class Conv2DBlock(nn.Module):
 class YOLOBackbone(nn.Module):
     def __init__(
         self,
-        num_conv_blocks,
+        num_downsampling_conv_blocks,
+        num_nondownsampling_conv_blocks,
         in_channels,
         first_layer_out_channels,
         kernel_size,
-        max_pooling,
     ):
         super().__init__()
 
         self.layers = []
         curr_in_channels = in_channels
         curr_out_channels = first_layer_out_channels
-        for _ in range(1, num_conv_blocks + 1):
+
+        weights = np.arange(1, num_downsampling_conv_blocks + 1) ** 3
+        weights = weights / weights.sum()
+        raw_counts = weights * num_nondownsampling_conv_blocks
+        num_refinement_blocks = np.floor(raw_counts).astype(int)
+
+        # Distribute remainder
+        remainder = num_nondownsampling_conv_blocks - num_refinement_blocks.sum()
+        if remainder != 0:
+            for i in np.argsort(raw_counts - num_refinement_blocks)[-remainder:]:
+                num_refinement_blocks[i] += 1
+
+        for i in range(num_downsampling_conv_blocks):
             self.layers.append(
                 Conv2DBlock(
                     in_channels=curr_in_channels,
                     out_channels=curr_out_channels,
                     kernel_size=kernel_size,
                     padding=kernel_size // 2,
-                    max_pooling=max_pooling,
+                    stride=2,
                 )
             )
+
+            for j in range(num_refinement_blocks[i]):
+                self.layers.append(
+                    Conv2DBlock(
+                        in_channels=curr_out_channels,
+                        out_channels=curr_out_channels,
+                        kernel_size=kernel_size,
+                        padding=kernel_size // 2,
+                        stride=1,
+                    )
+                )
             curr_in_channels, curr_out_channels = (
                 curr_out_channels,
                 curr_out_channels * 2,
@@ -115,30 +133,29 @@ class YOLOHead(nn.Module):
 class YOLOModel(nn.Module):
     def __init__(
         self,
-        backbone_num_conv_blocks,
+        backbone_num_downsampling_conv_blocks,
+        backbone_num_nondownsampling_conv_blocks,
         backbone_in_channels,
         backbone_first_layer_out_channels,
         backbone_kernel_size,
-        backbone_max_pooling,
         prediction_head_num_anchors,
         prediction_head_num_classes,
     ):
         super().__init__()
 
         self.backbone = YOLOBackbone(
-            num_conv_blocks=backbone_num_conv_blocks,
+            num_downsampling_conv_blocks=backbone_num_downsampling_conv_blocks,
+            num_nondownsampling_conv_blocks=backbone_num_nondownsampling_conv_blocks,
             in_channels=backbone_in_channels,
             first_layer_out_channels=backbone_first_layer_out_channels,
             kernel_size=backbone_kernel_size,
-            max_pooling=backbone_max_pooling,
         )
         self.prediction_head = YOLOHead(
-            backbone_first_layer_out_channels * (2 ** (backbone_num_conv_blocks - 1)),
+            backbone_first_layer_out_channels
+            * (2 ** (backbone_num_downsampling_conv_blocks - 1)),
             prediction_head_num_classes,
             prediction_head_num_anchors,
         )
-
-        # self.generate_anchors(scales, ratios)
 
     def forward(self, x):
         pred = self.backbone(x)
@@ -351,6 +368,32 @@ def non_max_suppression(predictions, iou_threshold):
     )
 
 
+def evaluate_model(
+    model,
+    data_loader,
+    grid_size,
+    iou_threshold_NMS,
+    iou_threshold_mAP,
+    desc="Validation",
+):
+    model.eval()
+    with torch.inference_mode():
+        decoded_preds = []
+        labels = []
+        for X, y in tqdm(
+            data_loader, desc=desc + " Batches", unit="batch", leave=False
+        ):
+            X = X.to(device)
+            pred = model(X)
+            decoded_preds.extend(
+                decode_YOLO_encoding(pred, grid_size, anchors, 0.0, iou_threshold_NMS)
+            )
+            labels.extend(y)
+        mAP = compute_mAP(decoded_preds, labels, iou_threshold_mAP, device)
+
+    return mAP
+
+
 def compute_mAP(preds, labels, iou_threshold, device):
     num_classes = preds[0].shape[1] - 5
     average_precisions = []
@@ -440,13 +483,15 @@ def compute_mAP(preds, labels, iou_threshold, device):
 
 
 def train_with_hyperparameter_grid_search(
+    param_sets,
     training_dataloader,
     validation_dataloader,
-    backbone_num_conv_blocks: list,
+    testing_dataloader,
+    backbone_num_downsampling_conv_blocks: list,
+    backbone_num_nondownsampling_conv_blocks: list,
     backbone_in_channels,
     backbone_first_layer_out_channels: list,
     backbone_kernel_size: list,
-    backbone_max_pooling: list,
     prediction_head_num_classes,
     image_size,
     anchors,
@@ -471,19 +516,10 @@ def train_with_hyperparameter_grid_search(
     **kwargs,
 ):
 
-    param_sets = itertools.product(
-        backbone_num_conv_blocks,
-        backbone_first_layer_out_channels,
-        backbone_kernel_size,
-        backbone_max_pooling,
-        lambda_coords,
-        lambda_no_obj,
-        lr,
-    )
-
     models_dir = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
-        f"models_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}",
+        "models",
+        f"{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}",
     )
     os.makedirs(
         models_dir,
@@ -551,10 +587,10 @@ def train_with_hyperparameter_grid_search(
                     "lr=learning rate",
                     "lmbd-co=lambda_coords",
                     "lmbd-no=lambda_no_obj",
-                    "bb-ncb=backbone_num_conv_blocks",
+                    "bb-ndscb=backbone_num_downsampling_conv_blocks",
+                    "bb-nndscb=backbone_num_nondownsampling_conv_blocks",
                     "bb-flc=backbone_first_layer_out_channels",
                     "bb-ks=backbone_kernel_size",
-                    "bb-mp=backbone_max_pooling",
                     sep="\n",
                     end="\n\n",
                 )
@@ -592,6 +628,46 @@ def train_with_hyperparameter_grid_search(
 
     for filename in glob.glob(models_dir + "/curr_*"):
         os.remove(filename)
+
+    print("################################")
+    for i in range(n_active_models):
+        model = YOLOModel(
+            backbone_num_downsampling_conv_blocks=runs[i][
+                "backbone_num_downsampling_conv_blocks"
+            ],
+            backbone_num_nondownsampling_conv_blocks=runs[i][
+                "backbone_num_nondownsampling_conv_blocks"
+            ],
+            backbone_in_channels=backbone_in_channels,
+            backbone_first_layer_out_channels=runs[i][
+                "backbone_first_layer_out_channels"
+            ],
+            backbone_kernel_size=runs[i]["backbone_kernel_size"],
+            prediction_head_num_anchors=anchors.shape[0],
+            prediction_head_num_classes=prediction_head_num_classes,
+        )
+        model, _, _, _, _ = load_model(
+            model,
+            models_dir,
+            runs[i]["model_name"],
+            None,
+            best=True,
+            device=device,
+            verbose=verbose,
+        )
+        print(
+            f"run_id={runs[i]['run_id']}, "
+            f"model_name={runs[i]['model_name']}, "
+            f"Test mAP={evaluate_model(
+                model,
+                testing_dataloader,
+                runs[i]['grid_size'],
+                iou_threshold_NMS,
+                iou_threshold_mAP,
+                desc='Testing'
+            ):.5f}"
+        )
+    print("################################")
 
     if visualize_after_training:
         visualize_prediction(pred, X)
@@ -637,11 +713,15 @@ def train_checkpoint_for_one_epoch(
         tqdm.write(f"Processing run_id={run["run_id"]}")
 
     model = YOLOModel(
-        backbone_num_conv_blocks=run["backbone_num_conv_blocks"],
+        backbone_num_downsampling_conv_blocks=run[
+            "backbone_num_downsampling_conv_blocks"
+        ],
+        backbone_num_nondownsampling_conv_blocks=run[
+            "backbone_num_nondownsampling_conv_blocks"
+        ],
         backbone_in_channels=backbone_in_channels,
         backbone_first_layer_out_channels=run["backbone_first_layer_out_channels"],
         backbone_kernel_size=run["backbone_kernel_size"],
-        backbone_max_pooling=run["backbone_max_pooling"],
         prediction_head_num_anchors=anchors.shape[0],
         prediction_head_num_classes=prediction_head_num_classes,
     )
@@ -668,7 +748,6 @@ def train_checkpoint_for_one_epoch(
     mAP, loss, X, pred = train_one_epoch(
         training_dataloader,
         validation_dataloader,
-        anchors,
         num_epochs,
         device,
         print_info_after_batches,
@@ -732,10 +811,10 @@ def create_models(
 
         runs.append({})
         runs[-1]["run_id"] = i
-        runs[-1]["backbone_num_conv_blocks"] = params[0]
-        runs[-1]["backbone_first_layer_out_channels"] = params[1]
-        runs[-1]["backbone_kernel_size"] = params[2]
-        runs[-1]["backbone_max_pooling"] = params[3]
+        runs[-1]["backbone_num_downsampling_conv_blocks"] = params[0]
+        runs[-1]["backbone_num_nondownsampling_conv_blocks"] = params[1]
+        runs[-1]["backbone_first_layer_out_channels"] = params[2]
+        runs[-1]["backbone_kernel_size"] = params[3]
         runs[-1]["lambda_coords"] = params[4]
         runs[-1]["lambda_no_obj"] = params[5]
         runs[-1]["lr"] = params[6]
@@ -746,13 +825,17 @@ def create_models(
         runs[-1]["active"] = True
 
         model = YOLOModel(
-            backbone_num_conv_blocks=runs[-1]["backbone_num_conv_blocks"],
+            backbone_num_downsampling_conv_blocks=runs[-1][
+                "backbone_num_downsampling_conv_blocks"
+            ],
+            backbone_num_nondownsampling_conv_blocks=runs[-1][
+                "backbone_num_nondownsampling_conv_blocks"
+            ],
             backbone_in_channels=backbone_in_channels,
             backbone_first_layer_out_channels=runs[-1][
                 "backbone_first_layer_out_channels"
             ],
             backbone_kernel_size=runs[-1]["backbone_kernel_size"],
-            backbone_max_pooling=runs[-1]["backbone_max_pooling"],
             prediction_head_num_anchors=anchors.shape[0],
             prediction_head_num_classes=prediction_head_num_classes,
         ).to(device)
@@ -764,10 +847,10 @@ def create_models(
                 f"lr-{runs[-1]["lr"]}",
                 f"lmbd-co-{runs[-1]["lambda_coords"]}",
                 f"lmbd-no-{runs[-1]["lambda_no_obj"]}",
-                f"bb-ncb-{runs[-1]["backbone_num_conv_blocks"]}",
+                f"bb-ndscb-{runs[-1]["backbone_num_downsampling_conv_blocks"]}",
+                f"bb-nndscb-{runs[-1]["backbone_num_nondownsampling_conv_blocks"]}",
                 f"bb-flc-{runs[-1]["backbone_first_layer_out_channels"]}",
                 f"bb-ks-{runs[-1]["backbone_kernel_size"]}",
-                f"bb-mp-{runs[-1]["backbone_max_pooling"]}",
             ]
         )
 
@@ -798,97 +881,6 @@ def free_memory(model, optimizer):
 
     gc.collect()
     torch.cuda.empty_cache()
-
-
-def train(
-    training_dataloader,
-    validation_dataloader,
-    backbone_num_conv_blocks,
-    backbone_in_channels,
-    backbone_first_layer_out_channels,
-    backbone_kernel_size,
-    backbone_max_pooling,
-    prediction_head_num_classes,
-    image_size,
-    anchors,
-    lambda_coords,
-    lambda_no_obj,
-    num_epochs,
-    device,
-    lr=0.001,
-    print_info_after_batches=False,
-    print_info_after_epoch=False,
-    visualize_after_batches=False,
-    visualize_after_epoch=False,
-    visualize_after_training=False,
-    iou_threshold_NMS=0.30,
-    iou_threshold_mAP=0.50,
-    **kwargs,
-):
-
-    grid_size = image_size // (2**backbone_num_conv_blocks)
-    model = YOLOModel(
-        backbone_num_conv_blocks=backbone_num_conv_blocks,
-        backbone_in_channels=backbone_in_channels,
-        backbone_first_layer_out_channels=backbone_first_layer_out_channels,
-        backbone_kernel_size=backbone_kernel_size,
-        backbone_max_pooling=backbone_max_pooling,
-        prediction_head_num_anchors=anchors.shape[0],
-        prediction_head_num_classes=prediction_head_num_classes,
-    ).to(device)
-    optimizer = Adam(model.parameters(), lr=lr)
-    loss_fn = get_loss_fn(
-        lambda_coords=lambda_coords,
-        lambda_no_obj=lambda_no_obj,
-        grid_size=grid_size,
-        anchors=anchors,
-        num_classes=prediction_head_num_classes,
-        device=device,
-    )
-    model_name = "models" + "_".join(
-        [
-            model._get_name(),
-            f"lr-{lr}",
-            f"lambda-coords-{lambda_coords}",
-            f"lambda-no-obj-{lambda_no_obj}",
-            f"backbone-num-conv-blocks-{backbone_num_conv_blocks}",
-            f"backbone-first-layer-out-channels-{backbone_first_layer_out_channels}",
-            f"backbone-kernel-size-{backbone_kernel_size}",
-            f"backbone-max-pooling-{backbone_max_pooling}",
-        ]
-    )
-
-    for epoch in range(num_epochs):
-        mAP, loss, X, pred = train_one_epoch(
-            training_dataloader,
-            validation_dataloader,
-            anchors,
-            num_epochs,
-            device,
-            print_info_after_batches,
-            print_info_after_epoch,
-            visualize_after_batches,
-            visualize_after_epoch,
-            iou_threshold_NMS,
-            iou_threshold_mAP,
-            grid_size,
-            model,
-            optimizer,
-            loss_fn,
-            epoch,
-        )
-
-    save_model(
-        model=model,
-        model_name=model_name,
-        optimizer=optimizer,
-        mAP=mAP,
-        loss=loss,
-        epoch=epoch,
-    )
-
-    if visualize_after_training:
-        visualize_prediction(pred, X)
 
 
 def save_model(
@@ -947,7 +939,9 @@ def load_model(
     checkpoint = torch.load(model_path, weights_only=True, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     mAP = checkpoint["mAP"]
     loss = checkpoint["loss"]
     epoch = checkpoint["epoch"]
@@ -962,7 +956,6 @@ def load_model(
 def train_one_epoch(
     training_dataloader,
     validation_dataloader,
-    anchors,
     num_epochs,
     device,
     print_info_after_batches,
@@ -1001,21 +994,14 @@ def train_one_epoch(
             if visualize_after_batches:
                 visualize_prediction(pred[0], X[0])
 
-    model.eval()
-    with torch.inference_mode():
-        decoded_pred = []
-        labels = []
-        for X, y in tqdm(
-            validation_dataloader, desc="Validation Batches", unit="batch", leave=False
-        ):
-            X = X.to(device)
-            pred = model(X)
-            decoded_pred.extend(
-                decode_YOLO_encoding(pred, grid_size, anchors, 0.0, iou_threshold_NMS)
-            )
-            labels.extend(y)
-        mAP = compute_mAP(decoded_pred, labels, iou_threshold_mAP, device)
-        del decoded_pred
+    mAP = evaluate_model(
+        model,
+        validation_dataloader,
+        grid_size,
+        iou_threshold_NMS,
+        iou_threshold_mAP,
+        "Validation",
+    )
 
     if print_info_after_epoch:
         tqdm.write(
@@ -1212,13 +1198,97 @@ def plot_hyperparam_search_summary(csv_path, top_k=20, interaction_pairs=None):
     plt.show()
 
 
+def test_model(
+    model_path,
+    data_loader,
+    image_size,
+    backbone_in_channels,
+    anchors,
+    eval_iou_threshold_mAP,
+    eval_iou_threshold_NMS,
+    vis_iou_threshold_NMS,
+    vis_conf_threshold,
+    prediction_head_num_classes,
+    device,
+    **kwargs,
+):
+    model_path = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        model_dir,
+        model_path,
+    )
+    model_dir, model_name = os.path.split(model_path)
+
+    parts = model_name.split("_")[1:]
+    params = {}
+    for part in parts:
+        *k, v = part.split("-", -1)
+        k = "-".join(k)
+        params[k] = v
+
+    model = YOLOModel(
+        backbone_num_downsampling_conv_blocks=int(params["bb-ndscb"]),
+        backbone_num_nondownsampling_conv_blocks=int(params["bb-nndscb"]),
+        backbone_in_channels=backbone_in_channels,
+        backbone_first_layer_out_channels=int(params["bb-flc"]),
+        backbone_kernel_size=int(params["bb-ks"]),
+        prediction_head_num_anchors=anchors.shape[0],
+        prediction_head_num_classes=prediction_head_num_classes,
+    )
+    model, *_ = load_model(model, model_dir, model_name, None, device)
+    model.eval()
+    with torch.inference_mode():
+        # tqdm.write(
+        #     f"mAP={evaluate_model(model, data_loader, image_size // (2 ** int(params["bb-ndscb"])), eval_iou_threshold_NMS, eval_iou_threshold_mAP, desc="Test")}"
+        # )
+        for X, y in data_loader:
+            X = X.to(device)
+            preds = model(X)
+            preds = decode_YOLO_encoding(
+                preds,
+                image_size // (2 ** int(params["bb-ndscb"])),
+                anchors,
+                vis_conf_threshold,
+                vis_iou_threshold_NMS,
+            )
+            for i in range(len(preds)):
+                visualize_prediction(preds[i], X[i])
+
+    return
+
+
 if __name__ == "__main__":
+    params = {
+        "backbone_in_channels": 2,
+        "backbone_num_downsampling_conv_blocks": [3, 4],
+        "backbone_num_nondownsampling_conv_blocks": [0, 3, 5, 7, 10],
+        "backbone_first_layer_out_channels": [16, 32],
+        "backbone_kernel_size": [3, 5, 7],
+        "prediction_head_num_classes": 2,
+        "image_size": 256,
+        "num_epochs": 3,
+        "batch_size": 32,
+        "print_info_after_batches": False,
+        "print_info_after_epoch": False,
+        "visualize_after_batches": False,
+        "visualize_after_epoch": False,
+        "visualize_after_training": False,
+        "iou_threshold_NMS": 0.30,
+        "iou_threshold_mAP": 0.50,
+        "lambda_coords": [50],
+        "lambda_no_obj": [0.5],
+        "lr": [0.001],
+        "drop_models_after_epochs": 5,
+        "models_to_drop": 1 / 3,
+        "n_remaining_models": 5,
+    }
+
     # params = {
     #     "backbone_in_channels": 2,
-    #     "backbone_num_conv_blocks": [5],
-    #     "backbone_first_layer_out_channels": [16, 32],
-    #     "backbone_kernel_size": [3, 5],
-    #     "backbone_max_pooling": [False, True],
+    #     "backbone_num_downsampling_conv_blocks": [5],
+    #     "backbone_num_nondownsampling_conv_blocks": [5],
+    #     "backbone_first_layer_out_channels": [16],
+    #     "backbone_kernel_size": [3],
     #     "prediction_head_num_classes": 2,
     #     "image_size": 512,
     #     "num_epochs": 100,
@@ -1229,67 +1299,14 @@ if __name__ == "__main__":
     #     "visualize_after_epoch": False,
     #     "visualize_after_training": False,
     #     "iou_threshold_NMS": 0.30,
-    #     "iou_threshold_mAP": 0.50,
-    #     "lambda_coords": [10, 50, 100],
-    #     "lambda_no_obj": [0.1, 0.5, 1.0],
-    #     "lr": [0.001, 0.01],
+    #     "iou_threshold_mAP": 0.75,
+    #     "lambda_coords": [50],
+    #     "lambda_no_obj": [0.1],
+    #     "lr": [0.001],
     #     "drop_models_after_epochs": 5,
     #     "models_to_drop": 1 / 3,
     #     "n_remaining_models": 5,
     # }
-
-    # params = {
-    #     "backbone_in_channels": 2,
-    #     "backbone_num_conv_blocks": [5, 6],
-    #     "backbone_first_layer_out_channels": [16, 32],
-    #     "backbone_kernel_size": [3, 5],
-    #     "backbone_max_pooling": [False, True],
-    #     "prediction_head_num_classes": 2,
-    #     "image_size": 512,
-    #     "num_epochs": 2,
-    #     "batch_size": 32,
-    #     "print_info_after_batches": False,
-    #     "print_info_after_epoch": False,
-    #     "visualize_after_batches": False,
-    #     "visualize_after_epoch": False,
-    #     "visualize_after_training": False,
-    #     "iou_threshold_NMS": 0.30,
-    #     "iou_threshold_mAP": 0.50,
-    #     "lambda_coords": [10, 50],
-    #     "lambda_no_obj": [0.1, 0.5],
-    #     "lr": [0.001, 0.01],
-    #     "drop_models_after_epochs": 5,
-    #     "models_to_drop": 1 / 3,
-    #     "n_remaining_models": 5,
-    # }
-
-    params = {
-        "backbone_in_channels": 2,
-        "backbone_num_conv_blocks": [5, 6],
-        "backbone_first_layer_out_channels": [16, 32],
-        "backbone_kernel_size": [5, 7],
-        "backbone_max_pooling": [False],
-        "prediction_head_num_classes": 2,
-        "image_size": 512,
-        "num_epochs": 10,
-        "batch_size": 16,
-        "print_info_after_batches": False,
-        "print_info_after_epoch": False,
-        "visualize_after_batches": False,
-        "visualize_after_epoch": False,
-        "visualize_after_training": False,
-        "iou_threshold_NMS": 0.30,
-        "iou_threshold_mAP": 0.50,
-        "lambda_coords": [50],
-        "lambda_no_obj": [0.1],
-        "lr": [0.001],
-        "drop_models_after_epochs": 5,
-        "models_to_keep": 1 / 3,
-        "n_remaining_models": 5,
-        "max_patience": 5,
-        "min_delta": 0.001,
-        "verbose": False,
-    }
     device = (
         torch.accelerator.current_accelerator().type
         if torch.accelerator.is_available()
@@ -1335,15 +1352,59 @@ if __name__ == "__main__":
         collate_fn=collate_fn,
     )
 
+    param_sets = itertools.product(
+        params["backbone_num_downsampling_conv_blocks"],
+        params["backbone_num_nondownsampling_conv_blocks"],
+        params["backbone_first_layer_out_channels"],
+        params["backbone_kernel_size"],
+        params["lambda_coords"],
+        params["lambda_no_obj"],
+        params["lr"],
+    )
+
+    param_sets = random.sample(list(param_sets), 15)
+
     params.update(
         {
+            "param_sets": param_sets,
             "anchors": anchors,
             "device": device,
             "training_dataloader": training_dataloader,
             "validation_dataloader": validation_dataloader,
+            "testing_dataloader": testing_dataloader,
         }
     )
 
-    # train_single_hyperaparamter_set(**params)
+    modes = ["train", "test", "summary"]
+    mode = modes[1]
 
-    train_with_hyperparameter_grid_search(**params)
+    if mode == "train":
+        train_with_hyperparameter_grid_search(**params)
+
+    model_dir = os.path.join(
+            "models",
+            "2026-01-13_21-35-01",
+        )
+    if mode == "test":     
+        model_name="YOLOModel_lr-0.01_lmbd-co-10_lmbd-no-0.1_bb-ndscb-5_bb-nndscb-0_bb-flc-16_bb-ks-3"
+        model_path = os.path.join(
+            model_dir,
+            model_name,
+        )
+        
+        test_model(
+            model_path=model_path,
+            data_loader=testing_dataloader,
+            eval_iou_threshold_NMS=0.3,
+            eval_iou_threshold_mAP=0.5,
+            vis_conf_threshold=0.7,
+            vis_iou_threshold_NMS=0.3,
+            **params,
+        )
+
+    if mode == "summary":
+        csv_path = os.path.join(
+            model_dir,
+            "data.csv",
+        )
+        plot_hyperparam_search_summary(csv_path)

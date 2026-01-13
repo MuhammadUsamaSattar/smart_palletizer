@@ -11,3 +11,4 @@ __pycache__
 .pytest_cache
 data/synthetic_data*
 examples
+models
