@@ -5,7 +5,7 @@
 
 ## Introduction
 
-This repository applies computer vision algorithms to a ROS2 bag data-stream to process color and depth data, detect boxes placed on a pallet, and estimate poses.
+This repository applies computer vision algorithms to a ROS2 bag data-stream to process color and depth data, detect boxes placed on a pallet, and estimate poses. Box detection has been implemented via both classical CV and a YOLO network training from scratch using synthetically generated data.
 
 ## Instructions
 
@@ -120,3 +120,21 @@ The top image shows the unfiltered data, while the bottom one shows the filtered
 ![Spawned Boxes](docs/results/box_spawn.gif)
 
 > **Future:** The planar surfaces can be detected using algorithms like RANSAC which is more reliable.
+
+### YOLO-based Box Detection
+- Synthetic data was generated using blenderproc.
+![Black and White Image](docs/results/synthetic_data_bw.png)
+![Depth Image](docs/results/synthetic_data_depth.png)
+- A YOLO network was built from scratch.
+- Hyperparameter search was conducted by hyperbanding and randomization. Due to massive number of combinations, the search was divided in two phases: Architectural and Loss:
+![Architecural Search - Main Plot](docs/results/arch_search_main.png)
+![Architecural Search - Interaction Plot](docs/results/arch_search_interaction.png)
+![Loss Search - Main Plot](docs/results/loss_search_main.png)
+![Loss Search - Interaction Plot](docs/results/loss_search_interaction.png)
+- This allowed us to conduct a final detailed training on top performing models:
+![Final Training - Main Plot](docs/results/final_training_main.png)
+![Final Training - Interaction Plot](docs/results/final_training_interaction.png)
+- The top models achieves mAP[0.50:0.05:0.95]=0.815.
+![Prediction Example 1](docs/results/prediction_1.png)
+![Prediction Example 2](docs/results/prediction_2.png)
+![Prediction Example 3](docs/results/prediction_3.png)

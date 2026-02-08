@@ -1,4 +1,6 @@
+import argparse
 from collections import defaultdict
+from collections.abc import Callable
 import csv
 from datetime import datetime
 import gc
@@ -6,173 +8,48 @@ import glob
 import itertools
 import math
 import os
-import random
 from tqdm import tqdm
+from typing import Tuple, List
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from smart_palletizer_cnn import yolo_model
 from smart_palletizer_cnn.box_and_pose_dataset import BoxAndPoseDataset
 from smart_palletizer_utils import utils
 import torch
-from torch import nn
 from torch.amp import autocast, GradScaler
 from torch.nn.functional import binary_cross_entropy_with_logits, cross_entropy
 from torch.optim import Adam
 from torch.utils.data import DataLoader, random_split
-from torchvision.ops import box_iou, nms, batched_nms
+from torchvision.ops import box_iou
 
 
-class Conv2DBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        padding,
-        stride=2,
-    ):
-        super().__init__()
+def collate_fn(batch: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Create batches from samples (X, y).
 
-        self.layers = [
-            nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(),
-        ]
+    Args:
+        batch (List[torch.Tensor]): Batches a list containing X and y.
 
-        self.layers = nn.Sequential(*self.layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class YOLOBackbone(nn.Module):
-    def __init__(
-        self,
-        num_downsampling_conv_blocks,
-        num_nondownsampling_conv_blocks,
-        in_channels,
-        first_layer_out_channels,
-        kernel_size,
-    ):
-        super().__init__()
-
-        self.layers = []
-        curr_in_channels = in_channels
-        curr_out_channels = first_layer_out_channels
-
-        weights = np.arange(1, num_downsampling_conv_blocks + 1) ** 3
-        weights = weights / weights.sum()
-        raw_counts = weights * num_nondownsampling_conv_blocks
-        num_refinement_blocks = np.floor(raw_counts).astype(int)
-
-        # Distribute remainder
-        remainder = num_nondownsampling_conv_blocks - num_refinement_blocks.sum()
-        if remainder != 0:
-            for i in np.argsort(raw_counts - num_refinement_blocks)[-remainder:]:
-                num_refinement_blocks[i] += 1
-
-        for i in range(num_downsampling_conv_blocks):
-            self.layers.append(
-                Conv2DBlock(
-                    in_channels=curr_in_channels,
-                    out_channels=curr_out_channels,
-                    kernel_size=kernel_size,
-                    padding=kernel_size // 2,
-                    stride=2,
-                )
-            )
-
-            for j in range(num_refinement_blocks[i]):
-                self.layers.append(
-                    Conv2DBlock(
-                        in_channels=curr_out_channels,
-                        out_channels=curr_out_channels,
-                        kernel_size=kernel_size,
-                        padding=kernel_size // 2,
-                        stride=1,
-                    )
-                )
-            curr_in_channels, curr_out_channels = (
-                curr_out_channels,
-                curr_out_channels * 2,
-            )
-
-        self.layers = nn.Sequential(*self.layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class YOLOHead(nn.Module):
-    def __init__(self, input_filters, num_classes, num_anchors):
-        super().__init__()
-        self.input_filters = input_filters
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        self.detector = nn.Conv2d(
-            input_filters, num_anchors * (5 + num_classes), kernel_size=1
-        )
-
-    def forward(self, x):
-        """
-        x: (B, C, S, S)
-        return: (B, S, S, A, 5+C)
-        """
-        B, _, S, _ = x.shape
-
-        x = self.detector(x)  # (B, A*(5+C), S, S)
-
-        x = x.view(B, self.num_anchors, 5 + self.num_classes, S, S)
-
-        x = x.permute(0, 3, 4, 1, 2).contiguous()
-
-        return x
-
-
-class YOLOModel(nn.Module):
-    def __init__(
-        self,
-        backbone_num_downsampling_conv_blocks,
-        backbone_num_nondownsampling_conv_blocks,
-        backbone_in_channels,
-        backbone_first_layer_out_channels,
-        backbone_kernel_size,
-        prediction_head_num_anchors,
-        prediction_head_num_classes,
-    ):
-        super().__init__()
-
-        self.backbone = YOLOBackbone(
-            num_downsampling_conv_blocks=backbone_num_downsampling_conv_blocks,
-            num_nondownsampling_conv_blocks=backbone_num_nondownsampling_conv_blocks,
-            in_channels=backbone_in_channels,
-            first_layer_out_channels=backbone_first_layer_out_channels,
-            kernel_size=backbone_kernel_size,
-        )
-        self.prediction_head = YOLOHead(
-            backbone_first_layer_out_channels
-            * (2 ** (backbone_num_downsampling_conv_blocks - 1)),
-            prediction_head_num_classes,
-            prediction_head_num_anchors,
-        )
-
-    def forward(self, x):
-        pred = self.backbone(x)
-        pred = self.prediction_head(pred)
-
-        return pred
-
-
-def collate_fn(batch):
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Two separate tensors containing batches of X and y.
+    """
     X_batch = torch.stack([item[0] for item in batch], dim=0)
     y_batch = [item[1] for item in batch]  # keep labels as list of dicts
     return X_batch, y_batch
 
 
-def generate_anchors(scales, ratios):
-    """Generates anchor boxes for given scales and aspect ratios."""
+def generate_anchors(scales: list, ratios: list) -> torch.Tensor:
+    """Generates anchor boxes for given scales and aspect ratios.
+
+    Args:
+        scales (list): List of scales.
+        ratios (list): List of ratios.
+
+    Returns:
+        torch.Tensor: Tensor containing unque combinations of scales and ratios.
+    """
     anchors = []
     for scale in scales:
         for ratio in ratios:
@@ -182,11 +59,37 @@ def generate_anchors(scales, ratios):
     return torch.tensor(anchors)
 
 
-def get_loss_fn(lambda_coords, lambda_no_obj, grid_size, anchors, num_classes, device):
-    def get_loss_val(pred, labels):
+def get_loss_fn(
+    lambda_coords: int | float,
+    lambda_no_obj: int | float,
+    grid_size: int,
+    anchors: torch.Tensor,
+    num_classes: int,
+    device: str,
+) -> Callable:
+    """Initializes the parameters for loss function and reutrns a callable loss function.
+
+    Args:
+        lambda_coords (int | float): Weightage of bounding box dimensions in loss calculation.
+        lambda_no_obj (int | float): Weightage of loss penalty for predicting a bounding box where none exists.
+        grid_size (int): Size of the final grid at which predictions are done.
+        anchors (torch.Tensor): Tensor of anchors scales and sizes.
+        num_classes (int): Number of prediction classes.
+        device (str): Device.
+
+    Returns:
+        function: Function that calculates the loss value.
+    """
+
+    def get_loss_val(pred: torch.Tensor, labels: List[dict]) -> torch.Tensor:
         labels = encode_labels_to_YOLO_format(
             labels, grid_size, anchors, num_classes, device
         )
+        """Calculates the loss value.
+
+        Returns:
+            torch.Tensor: Loss value.
+        """
 
         obj_mask = labels[..., 4] == 1.0
         no_obj_mask = labels[..., 4] == 0.0
@@ -237,14 +140,25 @@ def get_loss_fn(lambda_coords, lambda_no_obj, grid_size, anchors, num_classes, d
     return get_loss_val
 
 
-def encode_labels_to_YOLO_format(labels, grid_size, anchors, num_classes, device):
-    """
-    labels: list of dicts
-      - bboxes: (N, 4) normalized (cx, cy, w, h)
-      - categories: (N,) class indices
-    anchors: (A, 2) normalized (w, h)
-    """
+def encode_labels_to_YOLO_format(
+    labels: List[dict],
+    grid_size: int,
+    anchors: torch.Tensor,
+    num_classes: int,
+    device: str,
+) -> torch.Tensor:
+    """Ecnodes the labels in data to YOLO format.
 
+    Args:
+        labels (List[dict]): List of dictionaries containing the labels.
+        grid_size (int): Size of the grid at which to predict.
+        anchors (torch.Tensor): Sizes and scales of anchors boxes.
+        num_classes (int): Number of classes in predictions.
+        device (str): Device.
+
+    Returns:
+        torch.Tensor: Labels encoded in YOLO format.
+    """
     B = len(labels)
     S = grid_size
     A = anchors.shape[0]
@@ -287,7 +201,13 @@ def encode_labels_to_YOLO_format(labels, grid_size, anchors, num_classes, device
     return res
 
 
-def visualize_prediction(pred, image):
+def visualize_prediction(pred: torch.Tensor, image: torch.Tensor) -> None:
+    """Plot the prediction on the image.
+
+    Args:
+        pred (torch.Tensor): Predictions.
+        image (torch.Tensor): Image to drawn predictions on.
+    """
     image = image.cpu().detach()
 
     labels = {"bboxes": pred.cpu().detach()}
@@ -295,76 +215,30 @@ def visualize_prediction(pred, image):
     del labels
 
 
-def decode_YOLO_encodings(pred, grid_size, anchors, confidence_threshold, iou_threshold):
-    with torch.inference_mode():
-        B = pred.shape[0]
-        num_classes = pred.shape[-1] - 5
-
-        pred[..., 4] = torch.sigmoid(pred[..., 4])
-        pred[..., 5:] = torch.softmax(pred[..., 5:], dim=-1)
-
-        mask = pred[..., 4] > confidence_threshold
-        img, h, w, a = mask.nonzero(as_tuple=True)
-
-        if img.numel() == 0:
-            return [
-                torch.empty((0, 5 + num_classes), device=pred.device) for _ in range(B)
-            ]
-
-        boxes = pred[img, h, w, a]
-
-        xy = torch.stack(
-            [
-                (w + torch.sigmoid(boxes[:, 0])) / grid_size,
-                (h + torch.sigmoid(boxes[:, 1])) / grid_size,
-            ],
-            dim=1,
-        )
-
-        wh = anchors[a] * torch.exp(boxes[:, 2:4])
-
-        xy1 = xy - wh / 2
-        xy2 = xy + wh / 2
-        boxes_xyxy = torch.cat([xy1, xy2], dim=1)
-
-        obj = boxes[:, 4]
-        cls_probs = boxes[:, 5:]
-
-        cls_ids = cls_probs.argmax(dim=1)
-        scores = obj * cls_probs.max(dim=1).values
-
-        group_ids = img * num_classes + cls_ids
-
-        keep = batched_nms(
-            boxes_xyxy,
-            scores,
-            group_ids,
-            iou_threshold,
-        )
-
-        final = torch.cat(
-            [
-                boxes_xyxy[keep],
-                scores[keep, None],
-                cls_probs[keep],
-            ],
-            dim=1,
-        )
-
-        final[:, 2:4] = final[:, 2:4] - final[:, :2]
-        decoded_pred = [final[img[keep] == i] for i in range(B)]
-
-        return decoded_pred
-
-
 def evaluate_model(
-    model,
-    data_loader,
-    grid_size,
-    iou_threshold_NMS,
-    iou_threshold_mAP,
-    desc="Validation",
-):
+    model: torch.nn.Module,
+    data_loader: torch.utils.data.DataLoader,
+    grid_size: torch.Tensor,
+    iou_threshold_NMS: float,
+    iou_threshold_mAP: float | List[float] | Tuple[float],
+    desc: str = "Validation",
+) -> float:
+    """Evaluate the models.
+
+    Args:
+        model (torch.nn.Module): Model to evaluate.
+        data_loader (torch.utils.data.DataLoader): Dataloader to evaluate the model on.
+        grid_size (torch.Tensor): Size of the grid at which predictions are made.
+        iou_threshold_NMS (float): Threshold of non maximum suppresion.
+        iou_threshold_mAP (float | List[float] | Tuple[float]): Threshold(s) for calculating mAP value.
+        desc (str, optional): Indicates the type of dataloader to print with tqdm. Defaults to "Validation".
+
+    Raises:
+        ValueError: Raised when iou_threshold_mAP is not in the correct format.
+
+    Returns:
+        float: mAP value.
+    """
     model.eval()
     if isinstance(iou_threshold_mAP, float):
         iou_thresholds = [iou_threshold_mAP]
@@ -385,8 +259,8 @@ def evaluate_model(
             X = X.to(device)
             pred = model(X)
             decoded_preds.extend(
-                decode_YOLO_encodings(
-                pred, grid_size, anchors, 0.0, iou_threshold_NMS
+                yolo_model.YOLOModel.decode_YOLO_encodings(
+                    pred, grid_size, anchors, 0.0, iou_threshold_NMS
                 )
             )
             labels.extend(y)
@@ -395,7 +269,20 @@ def evaluate_model(
         return mAP
 
 
-def compute_mAP(preds, labels, iou_thresholds, device):
+def compute_mAP(
+    preds: torch.Tensor, labels: List[dict], iou_thresholds: float, device: str
+) -> float:
+    """Compute the mAP value.
+
+    Args:
+        preds (torch.Tensor): Predictions.
+        labels (List[dict]): True labels.
+        iou_thresholds (float): IOU threshold for mAP calculation.
+        device (str): Device.
+
+    Returns:
+        float: mAP value.
+    """
     if isinstance(iou_thresholds, (float, int)):
         iou_thresholds = torch.tensor([iou_thresholds], device=device)
         return_scalar = True
@@ -485,40 +372,62 @@ def compute_mAP(preds, labels, iou_thresholds, device):
 
 
 def train_with_hyperparameter_grid_search(
-    param_sets,
-    training_dataloader,
-    validation_dataloader,
-    testing_dataloader,
-    backbone_num_downsampling_conv_blocks: list,
-    backbone_num_nondownsampling_conv_blocks: list,
-    backbone_in_channels,
-    backbone_first_layer_out_channels: list,
-    backbone_kernel_size: list,
-    prediction_head_num_classes,
-    image_size,
-    anchors,
-    lambda_coords: list,
-    lambda_no_obj: list,
-    num_epochs,
-    device,
-    accumulate_steps,
-    use_amp,
-    lr: list = [0.001],
-    print_info_after_batches=False,
-    print_info_after_epoch=False,
-    visualize_after_batches=False,
-    visualize_after_epoch=False,
-    visualize_after_training=False,
-    iou_threshold_NMS=0.30,
-    iou_threshold_mAP=0.50,
-    drop_models_after_epochs=5,
-    models_to_drop=2 / 3,
-    n_remaining_models=5,
-    max_patience=5,
-    min_delta=0.001,
-    verbose=False,
+    param_sets: List[List],
+    training_dataloader: torch.utils.data.DataLoader,
+    validation_dataloader: torch.utils.data.DataLoader,
+    testing_dataloader: torch.utils.data.DataLoader,
+    backbone_in_channels: int,
+    prediction_head_num_classes: int,
+    image_size: int,
+    anchors: torch.Tensor,
+    num_epochs: int,
+    device: str,
+    accumulate_steps: int,
+    use_amp: bool,
+    print_info_after_batches: bool = False,
+    print_info_after_epoch: bool = False,
+    visualize_after_batches: bool = False,
+    visualize_after_epoch: bool = False,
+    visualize_after_training: bool = False,
+    iou_threshold_NMS: float = 0.30,
+    iou_threshold_mAP: float = 0.50,
+    drop_models_after_epochs: int = 5,
+    models_to_drop: float = 2 / 3,
+    n_remaining_models: int = 5,
+    max_patience: int = 5,
+    min_delta: float = 0.001,
+    verbose: bool = False,
     **kwargs,
-):
+) -> None:
+    """Train models with various hyperparameter sets.
+
+    Args:
+        param_sets (List[List]): Lists of parameters.
+        training_dataloader (torch.utils.data.DataLoader): Training dataloader.
+        validation_dataloader (torch.utils.data.DataLoader): Validation dataloader.
+        testing_dataloader (torch.utils.data.DataLoader): Testing dataloader.
+        backbone_in_channels (int): Number of channels in the input data.
+        prediction_head_num_classes (int): Number of classes in the prediciton.
+        image_size (int): Size of the image.
+        anchors (torch.Tensor): Anchors of various scales and sizes.
+        num_epochs (int): Number of epochs to train for.
+        device (str): Device.
+        accumulate_steps (int): Number of training steps to accumulate the gradients for. Useful if desired size of batch does not fit the device.
+        use_amp (bool): Whether to use automatic mixed preicision.
+        print_info_after_batches (bool, optional): Print training metrics after each batch. Defaults to False.
+        print_info_after_epoch (bool, optional): Print training metrics after each epoch. Defaults to False.
+        visualize_after_batches (bool, optional): Visualize prediction after each batch. Defaults to False.
+        visualize_after_epoch (bool, optional): Visualize prediction after each epoch. Defaults to False.
+        visualize_after_training (bool, optional): Visualize prediction after training. Defaults to False.
+        iou_threshold_NMS (float, optional): IOU threshold for non maximum suppresion. Defaults to 0.30.
+        iou_threshold_mAP (float, optional): IOU threshold(s) for mAP calculation. Defaults to 0.50.
+        drop_models_after_epochs (int, optional): Epochs after which models are dropped. Defaults to 5.
+        models_to_drop (float, optional): Fraction of models to drop. Defaults to 2/3.
+        n_remaining_models (int, optional): Minimum number of models to keep alive. Defaults to 5.
+        max_patience (int, optional): Patience for early stopping. Defaults to 5.
+        min_delta (float, optional): Delta to measure whether model improved. Defaults to 0.001.
+        verbose (bool, optional): Whehter to print extra diagnostic information. Defaults to False.
+    """
 
     models_dir = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
@@ -637,7 +546,7 @@ def train_with_hyperparameter_grid_search(
 
     print("################################")
     for i in range(n_active_models):
-        model = YOLOModel(
+        model = yolo_model.YOLOModel(
             backbone_num_downsampling_conv_blocks=runs[i][
                 "backbone_num_downsampling_conv_blocks"
             ],
@@ -681,10 +590,28 @@ def train_with_hyperparameter_grid_search(
     plot_hyperparam_search_summary(csv_path)
 
 
-def drop_runs(models_to_drop, n_remaining_models, runs, n_active_models, models_dir):
+def drop_runs(
+    models_to_drop: float,
+    n_remaining_models: int,
+    runs: List[dict],
+    n_active_models: int,
+    models_dir: str,
+) -> int:
+    """Drops some active models.
+
+    Args:
+        models_to_drop (float): Fraction of models to drop.
+        n_remaining_models (int): Minimum number of active models.
+        runs (List[dict]): List of runs.
+        n_active_models (int): Number of current active models.
+        models_dir (str): Directory where models are stored.
+
+    Returns:
+        int: Updated number of active models.
+    """
     prev_n_active_models = n_active_models
     n_active_models = max(
-        math.floor(n_active_models * (1-models_to_drop)), n_remaining_models
+        math.floor(n_active_models * (1 - models_to_drop)), n_remaining_models
     )
     for run in runs[n_active_models:prev_n_active_models]:
         run["active"] = False
@@ -695,32 +622,60 @@ def drop_runs(models_to_drop, n_remaining_models, runs, n_active_models, models_
 
 
 def train_checkpoint_for_one_epoch(
-    training_dataloader,
-    validation_dataloader,
-    backbone_in_channels,
-    prediction_head_num_classes,
-    anchors,
-    num_epochs,
-    device,
-    print_info_after_batches,
-    print_info_after_epoch,
-    visualize_after_batches,
-    visualize_after_epoch,
-    iou_threshold_NMS,
-    iou_threshold_mAP,
-    max_patience,
-    min_delta,
-    verbose,
-    epoch,
-    run,
-    models_dir,
-    accumulate_steps,
-    use_amp,
-):
+    training_dataloader: torch.utils.data.DataLoader,
+    validation_dataloader: torch.utils.data.DataLoader,
+    backbone_in_channels: int,
+    prediction_head_num_classes: int,
+    anchors: torch.Tensor,
+    num_epochs: int,
+    device: str,
+    print_info_after_batches: bool,
+    print_info_after_epoch: bool,
+    visualize_after_batches: bool,
+    visualize_after_epoch: bool,
+    iou_threshold_NMS: float,
+    iou_threshold_mAP: List[float],
+    max_patience: int,
+    min_delta: float,
+    verbose: bool,
+    epoch: int,
+    run: dict,
+    models_dir: str,
+    accumulate_steps: int,
+    use_amp: bool,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Train a model for one epoch.
+
+    Args:
+        training_dataloader (torch.utils.data.DataLoader): Training dataloader.
+        validation_dataloader (torch.utils.data.DataLoader): Validation dataloader.
+        backbone_in_channels (int): Number of channels in the input.
+        prediction_head_num_classes (int): Number of classes in prediction.
+        anchors (torch.Tensor): Tensor of anchors of various scales and ratios.
+        num_epochs (int): Number of epochs.
+        device (str): Device.
+        print_info_after_batches (bool): Print training information after each batch.
+        print_info_after_epoch (bool): Print training information after each epoch.
+        visualize_after_batches (bool): Visualize prediction after each batch.
+        visualize_after_epoch (bool): Visualize prediction after each epoch.
+        iou_threshold_NMS (float): IOU threshold for non maximum suppression.
+        iou_threshold_mAP (List[float]): IOU thershold(s) for mAP calculation.
+        max_patience (int): Maximum patience for early stopping.
+        min_delta (float): Minimum delta before which model is considered to have improved.
+        verbose (bool): Verbosity for printing extra diagnostic information.
+        epoch (int): Current epoch.
+        run (dict): List of runs.
+        models_dir (str): Directory containing saved models.
+        accumulate_steps (int): Number of steps for which to accumulate gradients. Useful when desired batch size does not fit on the device.
+        use_amp (bool): Whether to use Automatic Mixed Precision.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Tuple of one image and its corresponding prediction.
+    """
     if verbose:
         tqdm.write(f"Processing run_id={run["run_id"]}")
 
-    model = YOLOModel(
+    model = yolo_model.YOLOModel(
         backbone_num_downsampling_conv_blocks=run[
             "backbone_num_downsampling_conv_blocks"
         ],
@@ -803,15 +758,30 @@ def train_checkpoint_for_one_epoch(
 
 
 def create_models(
-    backbone_in_channels,
-    prediction_head_num_classes,
-    image_size,
-    anchors,
-    device,
-    verbose,
-    param_sets,
-    models_dir,
-):
+    backbone_in_channels: int,
+    prediction_head_num_classes: int,
+    image_size: int,
+    anchors: torch.Tensor,
+    device: str,
+    verbose: bool,
+    param_sets: List[List],
+    models_dir: str,
+) -> List[dict]:
+    """Creates the models on the disk.
+
+    Args:
+        backbone_in_channels (int): Number of channels in the input.
+        prediction_head_num_classes (int): Number of classes in the prediction.
+        image_size (int): Size of the image.
+        anchors (torch.Tensor): Tensor of anchors of various sizes and ratios.
+        device (str): Device.
+        verbose (bool): Verbosity for printing extra diagnostic information.
+        param_sets (List[List]): Sets of parameters over which the hyperparameter search is being done.
+        models_dir (str): Directory where the models should be saved.
+
+    Returns:
+        List[dict]: List of runs.
+    """
     runs = []
     for i, params in enumerate(
         tqdm(list(param_sets), desc="Creating Models", unit="model", leave=False)
@@ -834,7 +804,7 @@ def create_models(
         runs[-1]["patience"] = 0
         runs[-1]["active"] = True
 
-        model = YOLOModel(
+        model = yolo_model.YOLOModel(
             backbone_num_downsampling_conv_blocks=runs[-1][
                 "backbone_num_downsampling_conv_blocks"
             ],
@@ -880,7 +850,13 @@ def create_models(
     return runs
 
 
-def free_memory(model, optimizer):
+def free_memory(model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> None:
+    """Frees the memory from the model and optimizer.
+
+    Args:
+        model (torch.nn.Module): Model.
+        optimizer (torch.optim.Optimizer): Optimizer.
+    """
     if model is not None:
         model = model.to("cpu")  # move weights off GPU
     if optimizer is not None:
@@ -894,16 +870,29 @@ def free_memory(model, optimizer):
 
 
 def save_model(
-    model,
-    models_dir,
-    model_name,
-    optimizer,
-    mAP,
-    loss,
-    epoch,
-    best=True,
-    verbose=False,
-):
+    model: torch.nn.Module,
+    models_dir: str,
+    model_name: str,
+    optimizer: torch.optim.Optimizer,
+    mAP: float,
+    loss: float,
+    epoch: int,
+    best: bool = True,
+    verbose: bool = False,
+) -> None:
+    """Save the model on the disk.
+
+    Args:
+        model (torch.nn.Module): Model.
+        models_dir (str): Direcotry where to save the model.
+        model_name (str): Name of the model.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        mAP (float): mAP value.
+        loss (float): Loss value.
+        epoch (int): Number of current epoch.
+        best (bool, optional): Indicates if this is the best version of this model. If not, then the model is saved with a different name. Defaults to True.
+        verbose (bool, optional): Verbosity for printing extra diagnostic information. Defaults to False.
+    """
     if not best:
         model_name = "curr_" + model_name
     os.makedirs(
@@ -931,14 +920,28 @@ def save_model(
 
 
 def load_model(
-    model,
-    models_dir,
-    model_name,
-    optimizer,
-    device,
-    best=True,
-    verbose=False,
-):
+    model: torch.nn.Module,
+    models_dir: str,
+    model_name: str,
+    optimizer: torch.optim.Optimizer,
+    device: str,
+    best: bool = True,
+    verbose: bool = False,
+) -> Tuple[torch.nn.Module, torch.optim.Optimizer, float, float, int]:
+    """Load the model from disk.
+
+    Args:
+        model (torch.nn.Module): Model.
+        models_dir (str): Direcotry where to save the model.
+        model_name (str): Name of the model.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        device (str): Device.
+        best (bool, optional): Indicates if this is the best version of this model. If not, then the model is saved with a different name. Defaults to True.
+        verbose (bool, optional): Verbosity for printing extra diagnostic information. Defaults to False.
+
+    Returns:
+        Tuple[torch.nn.Module, torch.optim.Optimizer, float, float, int]: Tuple containing model, optimizer, mAP, loss and epoch.
+    """
     if not best:
         model_name = "curr_" + model_name
 
@@ -964,24 +967,48 @@ def load_model(
 
 
 def train_one_epoch(
-    training_dataloader,
-    validation_dataloader,
-    num_epochs,
-    device,
-    print_info_after_batches,
-    print_info_after_epoch,
-    visualize_after_batches,
-    visualize_after_epoch,
-    iou_threshold_NMS,
-    iou_threshold_mAP,
-    grid_size,
-    model,
-    optimizer,
-    loss_fn,
-    epoch,
-    accumulate_steps,
-    use_amp,
-):
+    training_dataloader: torch.utils.data.DataLoader,
+    validation_dataloader: torch.utils.data.DataLoader,
+    num_epochs: int,
+    device: str,
+    print_info_after_batches: bool,
+    print_info_after_epoch: bool,
+    visualize_after_batches: bool,
+    visualize_after_epoch: bool,
+    iou_threshold_NMS: float,
+    iou_threshold_mAP: List[float],
+    grid_size: int,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    loss_fn: Callable,
+    epoch: int,
+    accumulate_steps: int,
+    use_amp: bool,
+) -> Tuple[float, float, torch.Tensor, torch.Tensor]:
+    """Train the model for one epoch.
+
+    Args:
+        training_dataloader (torch.utils.data.DataLoader): Training dataloader.
+        validation_dataloader (torch.utils.data.DataLoader): Validation dataloader.
+        num_epochs (int): Number of epochs.
+        device (str): Device.
+        print_info_after_batches (bool): Print training information after each batch.
+        print_info_after_epoch (bool): Print training information after each epoch.
+        visualize_after_batches (bool): Visualize prediction after each batch.
+        visualize_after_epoch (bool): Visualize prediction after each epoch.
+        iou_threshold_NMS (float): IOU threshold for non maximum suppression.
+        iou_threshold_mAP (List[float]): IOU thershold(s) for mAP calculation.
+        grid_size (int): Size of the grid on which prediction is made.
+        model (torch.nn.Module): Model.
+        optimizer (torch.optim.Optimizer): Optimizer.
+        loss_fn (function): Loss function.
+        epoch (int): Current epoch.
+        accumulate_steps (int): Number of steps for which to accumulate gradients. Useful when desired batch size does not fit on the device.
+        use_amp (bool): Whether to use Automatic Mixed Precision.
+
+    Returns:
+        Tuple[float, float, torch.Tensor, torch.Tensor]: Tuple containing mAP, average epoch loss and, an image from the training dataset and its corresponding prediction.
+    """
     model.train()
     epoch_loss = 0
 
@@ -999,10 +1026,10 @@ def train_one_epoch(
         with autocast(device_type=device, enabled=False):
             raw_loss = loss_fn(pred=pred, labels=y)
             loss = raw_loss / accumulate_steps
-        
+
         scaler.scale(loss).backward()
 
-        if (i+1) % accumulate_steps == 0 or (i+1) == len(training_dataloader):
+        if (i + 1) % accumulate_steps == 0 or (i + 1) == len(training_dataloader):
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
@@ -1034,7 +1061,16 @@ def train_one_epoch(
     return mAP, epoch_loss / len(training_dataloader), X[0], pred[0]
 
 
-def plot_hyperparam_search_summary(csv_path, top_k=20, interaction_pairs=None):
+def plot_hyperparam_search_summary(
+    csv_path: str, top_k: int = 20, interaction_pairs: list | None = None
+) -> None:
+    """Plot the summary of the hyperparameter search.
+
+    Args:
+        csv_path (str): Path of the csv file containing mAP values for each model over epochs.
+        top_k (int, optional): Number of models to show in the top performance charts. Defaults to 20.
+        interaction_pairs (list | None, optional): List of parameters whose interactions to show. Defaults to None. None shows all interactions.
+    """
     # ==========================================================
     # 1. LOAD + PREPROCESS
     # ==========================================================
@@ -1200,10 +1236,17 @@ def plot_hyperparam_search_summary(csv_path, top_k=20, interaction_pairs=None):
         # Bin learning rate if involved
         for p in (p1, p2):
             if p == "lr":
-                bins = np.logspace(
-                    np.log10(subset[p].min()), np.log10(subset[p].max()), 8
-                )
-                subset[p] = pd.cut(subset[p], bins)
+                pmin = subset[p].min()
+                pmax = subset[p].max()
+                # If all LR values are (nearly) identical, pd.cut will fail because
+                # bin edges are not unique. Convert the values to a string label
+                # so pivoting still works. Otherwise use log-spaced bins and
+                # drop duplicate edges.
+                if np.isclose(pmin, pmax):
+                    subset[p] = subset[p].map(lambda v: f"{v:.1e}")
+                else:
+                    bins = np.logspace(np.log10(pmin), np.log10(pmax), 8)
+                    subset[p] = pd.cut(subset[p], bins, duplicates="drop")
 
         pivot = subset.pivot_table(
             index=p2,
@@ -1250,19 +1293,34 @@ def plot_hyperparam_search_summary(csv_path, top_k=20, interaction_pairs=None):
 
 
 def test_model(
-    model_path,
-    data_loader,
-    image_size,
-    backbone_in_channels,
-    anchors,
-    eval_iou_threshold_mAP,
-    eval_iou_threshold_NMS,
-    vis_iou_threshold_NMS,
-    vis_conf_threshold,
-    prediction_head_num_classes,
-    device,
+    model_path: str,
+    data_loader: torch.utils.data.DataLoader,
+    image_size: int,
+    backbone_in_channels: int,
+    anchors: torch.Tensor,
+    eval_iou_threshold_mAP: float | List[float] | Tuple[float],
+    eval_iou_threshold_NMS: float,
+    vis_iou_threshold_NMS: float,
+    vis_conf_threshold: float,
+    prediction_head_num_classes: int,
+    device: str,
     **kwargs,
-):
+) -> None:
+    """Test the model and visualize preditions.
+
+    Args:
+        model_path (str): Path of the model.
+        data_loader (torch.utils.data.DataLoader): Dataloader on which to test.
+        image_size (int): Size of the images.
+        backbone_in_channels (int): Number of channels in the input.
+        anchors (torch.Tensor): Tensor of anchors of various shapes and ratios.
+        eval_iou_threshold_mAP (float | List[float] | Tuple[float]): IOU threshold for mAP claculation for evaluation.
+        eval_iou_threshold_NMS (float): IOU threshold for non maximum suppresion for evaluation.
+        vis_iou_threshold_NMS (float): IOU threshold for non maximum suppression for visualizing predictions.
+        vis_conf_threshold (float): Threshold for confidence to use for visualizing predictions.
+        prediction_head_num_classes (int): Number of classes in the prediction.
+        device (str): Device.
+    """
     model_path = os.path.join(
         os.path.dirname(os.path.realpath(__file__)),
         model_path,
@@ -1276,7 +1334,7 @@ def test_model(
         k = "-".join(k)
         params[k] = v
 
-    model = YOLOModel(
+    model = yolo_model.YOLOModel(
         backbone_num_downsampling_conv_blocks=int(params["bb-ndscb"]),
         backbone_num_nondownsampling_conv_blocks=int(params["bb-nndscb"]),
         backbone_in_channels=backbone_in_channels,
@@ -1288,13 +1346,13 @@ def test_model(
     model, *_ = load_model(model, model_dir, model_name, None, device)
     model.eval()
     with torch.inference_mode():
-        # tqdm.write(
-        #     f"mAP@{eval_iou_threshold_mAP}={evaluate_model(model, data_loader, image_size // (2 ** int(params["bb-ndscb"])), eval_iou_threshold_NMS, eval_iou_threshold_mAP, desc="Test")}"
-        # )
+        tqdm.write(
+            f"mAP@{eval_iou_threshold_mAP}={evaluate_model(model, data_loader, image_size // (2 ** int(params["bb-ndscb"])), eval_iou_threshold_NMS, eval_iou_threshold_mAP, desc="Test")}"
+        )
         for X, y in data_loader:
             X = X.to(device)
             preds = model(X)
-            preds = decode_YOLO_encodings(
+            preds = yolo_model.YOLOModel.decode_YOLO_encodings(
                 preds,
                 image_size // (2 ** int(params["bb-ndscb"])),
                 anchors,
@@ -1310,10 +1368,6 @@ def test_model(
 if __name__ == "__main__":
     params = {
         "backbone_in_channels": 2,
-        "backbone_num_downsampling_conv_blocks": [3, 4],
-        "backbone_num_nondownsampling_conv_blocks": [0, 3, 5, 7, 10],
-        "backbone_first_layer_out_channels": [16, 32],
-        "backbone_kernel_size": [3, 5, 7],
         "prediction_head_num_classes": 2,
         "image_size": 512,
         "num_epochs": 100,
@@ -1325,40 +1379,12 @@ if __name__ == "__main__":
         "visualize_after_epoch": False,
         "visualize_after_training": False,
         "iou_threshold_NMS": 0.30,
-        "iou_threshold_mAP": [0.5, 0.95, 0.05],
-        "lambda_coords": [8, 10, 12],
-        "lambda_no_obj": [0.0625, 0.125, 0.250, 0.375],
-        "lr": [0.000320, 0.000160, 0.000480, 0.000240, 0.000800],
         "drop_models_after_epochs": 5,
         "models_to_drop": 1 / 6,
         "n_remaining_models": 3,
         "use_amp": True,
     }
 
-    # params = {
-    #     "backbone_in_channels": 2,
-    #     "backbone_num_downsampling_conv_blocks": [5],
-    #     "backbone_num_nondownsampling_conv_blocks": [5],
-    #     "backbone_first_layer_out_channels": [16],
-    #     "backbone_kernel_size": [3],
-    #     "prediction_head_num_classes": 2,
-    #     "image_size": 512,
-    #     "num_epochs": 100,
-    #     "batch_size": 32,
-    #     "print_info_after_batches": False,
-    #     "print_info_after_epoch": False,
-    #     "visualize_after_batches": False,
-    #     "visualize_after_epoch": False,
-    #     "visualize_after_training": False,
-    #     "iou_threshold_NMS": 0.30,
-    #     "iou_threshold_mAP": 0.75,
-    #     "lambda_coords": [50],
-    #     "lambda_no_obj": [0.1],
-    #     "lr": [0.001],
-    #     "drop_models_after_epochs": 5,
-    #     "models_to_drop": 1 / 3,
-    #     "n_remaining_models": 5,
-    # }
     device = (
         torch.accelerator.current_accelerator().type
         if torch.accelerator.is_available()
@@ -1382,8 +1408,6 @@ if __name__ == "__main__":
     training_data, validation_data, testing_data = random_split(
         data,
         [0.70, 0.15, 0.15],
-        # [0.001, 0.001, 0.998],
-        # [0.98, 0.01, 0.01],
     )
 
     training_dataloader = DataLoader(
@@ -1405,6 +1429,14 @@ if __name__ == "__main__":
         collate_fn=collate_fn,
     )
 
+    # Parameters in the following order:
+    # backbone_num_downsampling_conv_blocks
+    # backbone_num_nondownsampling_conv_blocks
+    # backbone_first_layer_out_channels
+    # backbone_kernel_size
+    # lambda_coords
+    # lambda_no_obj
+    # lr
     param_sets = [
         [3, 10, 32, 5, 12, 0.375, 0.00048],
         [3, 10, 32, 5, 10, 0.375, 0.00048],
@@ -1413,39 +1445,6 @@ if __name__ == "__main__":
         [3, 7, 16, 3, 8, 0.375, 0.00048],
         [3, 7, 16, 3, 10, 0.375, 0.00080],
     ]
-    # arch_param_sets = [
-    #     [3, 10, 32, 5],
-    #     [3, 7, 16, 3],
-    # ]
-
-    # # loss / optimization space
-    # loss_space = list(itertools.product(
-    #     params["lambda_coords"],
-    #     params["lambda_no_obj"],
-    #     params["lr"],
-    # ))
-
-    # param_sets = []
-
-    # for arch in arch_param_sets:
-    #     # sample up to some number of unique loss configs per architecture
-    #     sampled_loss_params = random.sample(
-    #         loss_space,
-    #         k=min(15, len(loss_space))
-    #     )
-    #     for lambda_coords, lambda_no_obj, lr in sampled_loss_params:
-    #         # lr = 10 ** random.uniform(-3.5, -2.5)
-    #         param_sets.append([
-    #             arch[0],  # bb-ndscb
-    #             arch[1],  # bb-nndscb
-    #             arch[2],  # bb-flc
-    #             arch[3],  # bb-ks
-    #             lambda_coords,
-    #             lambda_no_obj,
-    #             lr,
-    #         ])
-
-    # random.shuffle(param_sets)
 
     params.update(
         {
@@ -1455,22 +1454,57 @@ if __name__ == "__main__":
             "training_dataloader": training_dataloader,
             "validation_dataloader": validation_dataloader,
             "testing_dataloader": testing_dataloader,
-            "accumulate_steps": params["effective_batch_size"] // params["batch_size"]
+            "accumulate_steps": params["effective_batch_size"] // params["batch_size"],
         }
     )
 
-    modes = ["train", "test", "summary"]
-    mode = modes[1]
+    parser = argparse.ArgumentParser(
+        "Script to train, test or summarize results from previous training"
+    )
+
+    parser.add_argument(
+        "--mode",
+        help="Select 'train', 'test' or 'summary'.",
+        type=str,
+        choices=["train", "test", "summary"],
+        required=True,
+    )
+    parser.add_argument(
+        "--model-folder",
+        help="Folder name where models are stored in **/models/** for 'test' and 'summary'.",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
+        "--model-name", help="Name of model to use for 'test'.", type=str, default=""
+    )
+    args = parser.parse_args()
+    mode = args.mode
+    model_folder = args.model_folder
+    model_name = args.model_name
+
+    if mode == "test":
+        if model_folder == "" and model_name == "":
+            raise ValueError(
+                "model_folder and model_name must be passed for mode 'test'."
+            )
+        if model_folder == "":
+            raise ValueError("model_folder must be passed for mode 'test'.")
+        if model_name == "":
+            raise ValueError("model_name must be passed for mode 'test'.")
+
+    if mode == "summary":
+        if model_folder == "":
+            raise ValueError("model_folder must be passed for mode 'summary'.")
 
     if mode == "train":
         train_with_hyperparameter_grid_search(**params)
 
     model_dir = os.path.join(
         "models",
-        "final_training",
+        model_folder,
     )
     if mode == "test":
-        model_name = "YOLOModel_lr-0.00048_lmbd-co-10_lmbd-no-0.25_bb-ndscb-3_bb-nndscb-10_bb-flc-32_bb-ks-5"
         model_path = os.path.join(
             model_dir,
             model_name,
