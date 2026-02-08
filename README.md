@@ -134,7 +134,7 @@ The top image shows the unfiltered data, while the bottom one shows the filtered
 - This allowed us to conduct a final detailed training on top performing models:
 ![Final Training - Main Plot](docs/results/final_training_main.png)
 ![Final Training - Interaction Plot](docs/results/final_training_interaction.png)
-- The top models achieves mAP[0.50:0.05:0.95]=0.815.
+- The top model achieves mAP[0.50:0.05:0.95]=0.815.
 ![Prediction Example 1](docs/results/prediction_1.png)
 ![Prediction Example 2](docs/results/prediction_2.png)
 ![Prediction Example 3](docs/results/prediction_3.png)
