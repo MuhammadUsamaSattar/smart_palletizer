@@ -3,12 +3,11 @@ from copy import deepcopy
 import cv2
 import cv_bridge
 import numpy as np
+from rcl_interfaces.msg import ParameterDescriptor
 import rclpy
 from rclpy.node import Node
-from rcl_interfaces.msg import ParameterDescriptor
-from sensor_msgs.msg import Image, CameraInfo
-
-from smart_palletizer_py import utils
+from sensor_msgs.msg import CameraInfo, Image
+from smart_palletizer_utils import utils
 
 
 class PostProcessing(Node):
@@ -105,7 +104,10 @@ class PostProcessing(Node):
         self.camera_info = msg
 
     def process_imgs(self) -> None:
-        """Process images by applying downscaling, hole patching, median blur and EMA time filter."""
+        """Filter images. 
+        
+        Apply downscaling, hole patching, median blur and EMA time filter.
+        """
         # If class attributes have no value, then skip
         if self.img_depth is None or self.img_rgb is None or self.camera_info is None:
             return
@@ -157,13 +159,15 @@ def subsample(img: np.ndarray, factor: int = 2, method: str = "auto") -> np.ndar
     """Sub-sample an image (depth map or RGB) intelligently using non-zero median or mean.
 
     Args:
-        img (np.ndarray): 2D (depth) or 3D (H,W,C) image. np.uint16 for depth. np.uint8 for RGB.
+        img (np.ndarray): 2D (depth) or 3D (H,W,C) image. np.uint16 for depth.
+        np.uint8 for RGB.
         factor (int, optional): Sub-sampling factor. Defaults to 2.
-        method (str, optional): 'auto' chooses median for small factor (<4) and mean for larger factors.
+        method (str, optional): 'auto' chooses median for small factor (<4) and
+        mean for larger factors.
 
     Raises:
-        ValueError: Raise error if method is neither 'median' nor 'mean'. Raise error if image is neither
-        2D nor 3D.
+        ValueError: Raise error if method is neither 'median' nor 'mean'. Raise
+        error if image is neither 2D nor 3D.
 
     Returns:
         np.ndarray: Sub-sampled image of the same dtype as input.
@@ -229,15 +233,18 @@ def subsample(img: np.ndarray, factor: int = 2, method: str = "auto") -> np.ndar
     return subsampled
 
 
-def get_mask(type: str, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
-    """Gets a sub-array mask depending on type around (dx, dy) pixel.
+def get_mask(mask_type: str, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
+    """Get a sub-array mask depending on type around (dx, dy) pixel.
 
     Args:
-        type (str): Type of mask. Str consists of 2 or 3 parts Direction-Dimension-[Inclusion].
+        type (str): Type of mask. Str consists of 2 or 3 parts
+        Direction-Dimension-[Inclusion].
                     - Direction: U (Up), D (Down), L (Left), R (Right)
                     - Dimension: 1D, 2D
-                    - Inclusion: Incl (Include pixels perpendicular to direction beside central pixel),
-                    Excl (Exclude pixels perpendicular to direction beside central pixel)
+                    - Inclusion: Incl (Include pixels perpendicular to
+                    direction beside central pixel),
+                    Excl (Exclude pixels perpendicular to direction beside
+                    central pixel)
         dy (np.ndarray): x-coordinate of pixel.
         dx (np.ndarray): y-coordinate of pixel.
 
@@ -247,54 +254,61 @@ def get_mask(type: str, dy: np.ndarray, dx: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: Output mask.
     """
-    if type == "U-1D":
+    if mask_type == "U-1D":
         return dy < 0
-    elif type == "D-1D":
+    elif mask_type == "D-1D":
         return dy > 0
-    elif type == "L-1D":
+    elif mask_type == "L-1D":
         return dx < 0
-    elif type == "R-1D":
+    elif mask_type == "R-1D":
         return dx > 0
-    elif type == "U-2D-Excl":
+    elif mask_type == "U-2D-Excl":
         return (dy < 0) & (np.abs(dx) <= np.abs(dy))
-    elif type == "D-2D-Excl":
+    elif mask_type == "D-2D-Excl":
         return (dy > 0) & (np.abs(dx) <= np.abs(dy))
-    elif type == "L-2D-Excl":
+    elif mask_type == "L-2D-Excl":
         return (dx < 0) & (np.abs(dy) <= np.abs(dx))
-    elif type == "R-2D-Excl":
+    elif mask_type == "R-2D-Excl":
         return (dx > 0) & (np.abs(dy) <= np.abs(dx))
-    elif type == "U-2D-Incl":
+    elif mask_type == "U-2D-Incl":
         return dy < 0
-    elif type == "D-2D-Incl":
+    elif mask_type == "D-2D-Incl":
         return dy > 0
-    elif type == "L-2D-Incl":
+    elif mask_type == "L-2D-Incl":
         return dx < 0
-    elif type == "R-2D-Incl":
+    elif mask_type == "R-2D-Incl":
         return dx > 0
     else:
-        raise ValueError(f"Unknown type: {type}")
+        raise ValueError(f"Unknown type: {mask_type}")
 
 
 def holePatching(
-    img: np.ndarray, size: int, mode: str, type: str, max_iter: int = 10
+    img: np.ndarray, size: int, mode: str, mask_type: str, max_iter: int = 10
 ) -> np.ndarray:
     """Efficient iterative hole-filling for image using directional masks.
+
     Median, min, or max are applied only to non-zero neighbors.
 
     Args:
         img (np.ndarray): Image to hole patch. Must be np.uint16.
         size (int): Odd integer window size within which hole patching is done.
-        mode (str): Mode of hole patching algorithm. Options are 'median', 'min' or 'max'.
-        type (str): Type of mask. Str consists of 2 or 3 parts Direction-Dimension-[Inclusion].
+        mode (str): Mode of hole patching algorithm. Options are 'median',
+        'min' or 'max'.
+        mask_type (str): Type of mask. Str consists of 2 or 3 parts
+        Direction-Dimension-[Inclusion].
                     - Direction: U (Up), D (Down), L (Left), R (Right)
                     - Dimension: 1D, 2D
-                    - Inclusion: Incl (Include pixels perpendicular to direction beside central pixel),
-                    Excl (Exclude pixels perpendicular to direction beside central pixel)
-        max_iter (int, optional): Maximum number of iterations to run hole patching. Iterations are needed
-        to patch holes in thick regions. Defaults to 10.
+                    - Inclusion: Incl (Include pixels perpendicular to
+                    direction beside central pixel),
+                    Excl (Exclude pixels perpendicular to direction beside
+                    central pixel)
+        max_iter (int, optional): Maximum number of iterations to run hole
+        patching. Iterations are needed to patch holes in thick regions.
+        Defaults to 10.
 
     Raises:
-        ValueError: Raise error if mode is not 'median', 'max' or 'min'. Raise error if image is not np.uint16 or size is not odd.
+        ValueError: Raise error if mode is not 'median', 'max' or 'min'. Raise
+        error if image is not np.uint16 or size is not odd.
 
     Returns:
         np.ndarray: Hole patched image.
@@ -311,7 +325,7 @@ def holePatching(
     dy, dx = np.meshgrid(idx, idx, indexing="ij")
 
     # Compute only the needed mask
-    mask = get_mask(type, dy, dx)
+    mask = get_mask(mask_type, dy, dx)
     dy_offsets = dy[mask]
     dx_offsets = dx[mask]
 

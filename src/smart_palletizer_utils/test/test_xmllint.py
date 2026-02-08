@@ -1,4 +1,4 @@
-# Copyright 2017 Open Source Robotics Foundation, Inc.
+# Copyright 2015 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ament_flake8.main import main_with_errors
-from pathlib import Path
+from ament_xmllint.main import main
 import pytest
 
 
-@pytest.mark.flake8
 @pytest.mark.linter
-def test_flake8():
-    config_path = Path(__file__).resolve().parent.parent.parent.parent / 'flake8.ini'
-    rc, errors = main_with_errors(argv=['--config', str(config_path)])
-    assert rc == 0, \
-        'Found %d code style errors / warnings:\n' % len(errors) + \
-        '\n'.join(errors)
+@pytest.mark.xmllint
+def test_xmllint() -> None:
+    rc = main(argv=[])
+    assert rc == 0, 'Found code style errors / warnings'

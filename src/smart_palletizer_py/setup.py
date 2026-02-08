@@ -1,6 +1,7 @@
-from setuptools import find_packages, setup
 from glob import glob
 import os
+
+from setuptools import find_packages, setup
 
 package_name = "smart_palletizer_py"
 

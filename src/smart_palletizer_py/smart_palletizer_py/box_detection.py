@@ -7,10 +7,9 @@ import image_geometry
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image, CameraInfo
-
-from smart_palletizer_py import utils
+from sensor_msgs.msg import CameraInfo, Image
 from smart_palletizer_interfaces.msg import DetectedBox, DetectedBoxes
+from smart_palletizer_utils import utils
 
 
 class BoxDetection(Node):
@@ -81,7 +80,10 @@ class BoxDetection(Node):
         self.camera.from_camera_info(msg)
 
     def detect_boxes(self) -> None:
-        """Detect boxes and publish image message with bounding boxes and information of boxes"""
+        """Detect boxes.
+        
+        Publish image message with bounding boxes and information of boxes.
+        """
         # If instance attributes have not been assigned then skip
         if (
             self.img_rgb is None
@@ -96,11 +98,12 @@ class BoxDetection(Node):
         img_depth = self.bridge.imgmsg_to_cv2(self.img_depth, desired_encoding="16UC1")
         img_rgb = self.bridge.imgmsg_to_cv2(self.img_rgb, desired_encoding="bgr8")
 
-        ### --- Image pre-processing --- ###
+        # --- Image pre-processing --- #
         img_depth_processed = img_depth
 
-        # Convert BGR image to HSV and offset the color since our target boxes are close to 0 value.
-        # Equalize histograms in V space to improve contrast
+        # Convert BGR image to HSV and offset the color since our target boxes
+        # are close to 0 value and Equalize histograms in V space to improve
+        # contrast
         img_rgb_processed = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2HSV)
         img_rgb_processed[:, :, 0] = 100 + img_rgb_processed[:, :, 0]
         img_rgb_processed[:, :, 2] = cv2.equalizeHist(img_rgb_processed[:, :, 2])
@@ -116,7 +119,7 @@ class BoxDetection(Node):
             img_rgb_processed[:, :, 2], self.prev_filtered_img["v"], 0.2, 50
         ).copy()
 
-        ### --- Combined image pre-processing --- ###
+        # --- Combined image pre-processing --- #
         # Create masks from depth to isolate just the region of interest
         upper_depth_lim = 1775
         lower_depth_lim = 1500
@@ -132,7 +135,8 @@ class BoxDetection(Node):
         )
         mask2 = mask2.astype(np.uint8)
 
-        # Rescale depth image, convert to uint8 and append to the uint8 HSV image
+        # Rescale depth image, convert to uint8 and append to the uint8 HSV
+        # image
         np.clip(
             img_depth_processed, lower_depth_lim, upper_depth_lim, img_depth_processed
         )
@@ -151,18 +155,20 @@ class BoxDetection(Node):
             img_rgb_processed, img_rgb_processed, mask=mask2
         )
 
-        ### --- Edge detection --- ###
+        # --- Edge detection --- #
         # Isolate depth image
         img_depth_processed = img_rgb_processed[:, :, 3]
 
-        # Run Canny edge detection on combined image to extract boxes that can be identified by both hsv and depth change
+        # Run Canny edge detection on combined image to extract boxes that can
+        # be identified by both hsv and depth change
         contours = self.findContours(
             img_rgb_processed,
             canny_range=(110, 110),
             dilation_kernel_size=(7, 7),
             dilation_iterations=1,
         )
-        # Run Canny edge detection on only depth image to extract boxes that can be identified by only depth change
+        # Run Canny edge detection on only depth image to extract boxes that
+        # can be identified by only depth change
         contours_depth = self.findContours(
             img_depth_processed,
             canny_range=(40, 40),
@@ -170,11 +176,12 @@ class BoxDetection(Node):
             dilation_iterations=2,
         )
 
-        # Detects and draws the areas representing the boxes, bounding boxes and labels
+        # Detects and draws the areas representing the boxes, bounding boxes
+        # and labels
         self.getBoxes(img_depth, contours_depth + contours)
         img_rgb = self.drawBoxes(img_rgb, alpha=0.2)
 
-        ### --- Publish messages --- ###
+        # --- Publish messages --- #
         detected_boxes_data = []
         for k, (_, _, box_info, updated) in self.detected_boxes["box_infos"].items():
             if not updated:
@@ -216,10 +223,11 @@ class BoxDetection(Node):
 
         Args:
             img (np.ndarray): Image in which contours are detected.
-            canny_range (Tuple[int  |  float, int  |  float]): Thresholds for Canny in
-            the format (lower_threshold, upper_threshold).
+            canny_range (Tuple[int  |  float, int  |  float]): Thresholds for
+            Canny in the format (lower_threshold, upper_threshold).
             dilation_kernel_size (int): Kernel size for dilation of contours.
-            dilation_iterations (int): Number of iterations for dilation of contours.
+            dilation_iterations (int): Number of iterations for dilation of
+            contours.
 
         Returns:
             List[List[List[int, int]]]: List containing contours.
@@ -256,7 +264,8 @@ class BoxDetection(Node):
             box_contour = cv2.boxPoints(cv2.minAreaRect(cnt))
             box_contour = np.int0(box_contour)
 
-            # Get real-world coordinates of three ponts of the box contour and find the two side lengths
+            # Get real-world coordinates of three ponts of the box contour and
+            # find the two side lengths
             p1 = utils.get_XYZ_from_Pixels(
                 self.camera, box_contour[0][0], box_contour[0][1], depth
             )
@@ -275,7 +284,8 @@ class BoxDetection(Node):
                 l1, l2 = l2, l1
                 longest_side_coords = (box_contour[1], box_contour[2])
 
-            # Calculate the sum of squared error between the l1 and l2 and second-largest dim of each box
+            # Calculate the sum of squared error between the l1 and l2 and
+            # second-largest dim of each box
             errors = [
                 (
                     (l1 - utils.SMALL_BOX_DIMS.x) ** 2
@@ -287,7 +297,8 @@ class BoxDetection(Node):
                 ),
             ]
 
-            # Assign classification as the box with lower error and assign error[0] as the smaller of the two errors
+            # Assign classification as the box with lower error and assign error
+            # [0] as the smaller of the two errors
             if errors[0] <= errors[1]:
                 classification = "small"
             else:
@@ -310,10 +321,12 @@ class BoxDetection(Node):
                     (cx, cy, longest_side_coords, depth, classification),
                     True,
                 ]
-                # Difference in pixel values before two boxes are considered to be separate
+                # Difference in pixel values before two boxes are considered to
+                # be separate
                 diff = 20
 
-                # Assign box data to a close detected box in previous frame. Otherwise add the box as a new box.
+                # Assign box data to a close detected box in previous frame.
+                # Otherwise add the box as a new box.
                 for k, prev_cnts in self.detected_boxes["box_infos"].items():
                     if (
                         abs(prev_cnts[2][0] - cx) <= diff
@@ -336,13 +349,16 @@ class BoxDetection(Node):
 
         Args:
             img (np.ndarray): Image on which to draw.
-            detected_boxes (Tuple[List[int], List[int], Tuple[int, int, Tuple[int, int], int, str]]):
-            Box information in the format [Bounding Box, Box Contour, Box Information].
-            alpha (float, optional): Blending parameter. Higher value of alpha leads to stronger
-            contour fill color. Defaults to 0.2.
+            detected_boxes (Tuple[List[int], List[int], Tuple[int, int, Tuple
+            [int, int], int, str]]):
+            Box information in the format [Bounding Box, Box Contour, Box
+            Information].
+            alpha (float, optional): Blending parameter. Higher value of alpha
+            leads to stronger contour fill color. Defaults to 0.2.
 
         Returns:
-            np.ndarray: Output image with bounding box, box contour and box label.
+            np.ndarray: Output image with bounding box, box contour and box
+            label.
         """
         contour_mask = np.zeros(img.shape, dtype=img.dtype)
 

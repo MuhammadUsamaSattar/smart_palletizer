@@ -1,6 +1,5 @@
 ply
 format ascii 1.0
-comment TextureFile medium_box.png
 element vertex 5421
 property float x
 property float y

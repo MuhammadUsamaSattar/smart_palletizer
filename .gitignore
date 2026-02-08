@@ -8,3 +8,7 @@ data/smart_palletizing_data*
 __pycache__
 .gitlab*
 /**/test.py
+.pytest_cache
+data/synthetic_data*
+examples
+models/
